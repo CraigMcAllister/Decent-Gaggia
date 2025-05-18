@@ -1,6 +1,6 @@
-import { Switch } from "@mui/material";
+import {Switch} from "@mui/material";
 import React from 'react';
-import { ChartComponentProps, Line } from "react-chartjs-2";
+import {ChartComponentProps, Line} from "react-chartjs-2";
 import './../App.css';
 import ARDUINO_IP from '../config';
 import Timer from "./Timer";
@@ -10,7 +10,6 @@ interface IMessage {
     brewTemp: number;
     pressure: number;
     brewTime: number;
-    shotGrams: number;
 }
 
 interface IProps {
@@ -26,7 +25,6 @@ interface IState {
     data: ChartComponentProps;
     startUp: boolean;
     wsConnected: boolean;
-    shotGrams: number[];
 
 }
 
@@ -77,19 +75,18 @@ const chartOptions = {
 }
 
 
-
 class Espresso extends React.Component<IProps, IState> {
     ws = new WebSocket(`ws://${ARDUINO_IP.ARDUINO_IP}:90/ws`);
 
     private myRef: React.RefObject<Line>;
+
     constructor(props: IProps) {
         super(props);
         this.myRef = React.createRef();
 
         let sessionData = sessionStorage.getItem('data');
         if (sessionData) {
-            let sessionState = JSON.parse(sessionData);
-            this.state = sessionState;
+            this.state = JSON.parse(sessionData);
             this.myRef.current?.chartInstance.update();
 
         } else {
@@ -101,7 +98,6 @@ class Espresso extends React.Component<IProps, IState> {
                 brewTime: [],
                 setPoint: 95,
                 startUp: false,
-                shotGrams: [],
                 wsConnected: false,
                 data: {
                     data: {
@@ -124,7 +120,7 @@ class Espresso extends React.Component<IProps, IState> {
 
     componentDidMount() {
         this.myRef.current?.chartInstance.update();
-        this.setState({ wsConnected: false });
+        this.setState({wsConnected: false});
     }
 
     componentWillUnmount() {
@@ -145,7 +141,7 @@ class Espresso extends React.Component<IProps, IState> {
     startConnection = (event: React.ChangeEvent<HTMLInputElement>) => {
         if (this.state.wsConnected) {
             this.ws.close();
-            this.setState({ wsConnected: false });
+            this.setState({wsConnected: false});
         }
 
         if (event.target.checked) {
@@ -154,7 +150,7 @@ class Espresso extends React.Component<IProps, IState> {
         this.ws.onopen = () => {
             // on connecting, do nothing but log it to the console
             console.log('connected')
-            this.setState({ wsConnected: true })
+            this.setState({wsConnected: true})
         }
 
         this.ws.onmessage = evt => {
@@ -165,7 +161,6 @@ class Espresso extends React.Component<IProps, IState> {
                 brewTime: [...this.state.brewTime, this.getTimeString()],
                 brewTemp: [...this.state.brewTemp, message.brewTemp],
                 pressure: [...this.state.pressure, message.pressure],
-                shotGrams: [...this.state.shotGrams, message.shotGrams],
                 data: {
                     data: {
                         labels: this.state.brewTime,
@@ -186,14 +181,6 @@ class Espresso extends React.Component<IProps, IState> {
                                 yAxisID: 'pressure',
                                 fill: false,
                             },
-                            {
-                                label: "Weight",
-                                data: this.state.shotGrams,
-                                backgroundColor: "rgba(255, 165, 0, 0.8)",
-                                borderColor: "rgba(255, 140, 0, 0.6)",
-                                yAxisID: 'pressure',
-                                fill: false,
-                            },
                         ]
                     }
                 }
@@ -202,7 +189,7 @@ class Espresso extends React.Component<IProps, IState> {
         this.ws.onclose = () => {
             console.log('disconnected')
 
-            this.setState({ wsConnected: false })
+            this.setState({wsConnected: false})
         }
     }
 
@@ -212,15 +199,13 @@ class Espresso extends React.Component<IProps, IState> {
     }
 
 
-
     render() {
         return (
             <div className="container">
                 <div className="row">
                     <div className="col-3">
                         <div className="chart-container">
-
-                            <Line ref={this.myRef} options={chartOptions} data={this.state.data.data} />
+                            <Line ref={this.myRef} options={chartOptions} data={this.state.data.data}/>
                         </div>
                     </div>
                     <div className="col-1">
@@ -234,7 +219,7 @@ class Espresso extends React.Component<IProps, IState> {
                             <Switch
                                 checked={this.state.wsConnected}
                                 onChange={this.startConnection}
-                                inputProps={{ 'aria-label': 'controlled' }}
+                                inputProps={{'aria-label': 'controlled'}}
                             />
                         </div>
                     </div>

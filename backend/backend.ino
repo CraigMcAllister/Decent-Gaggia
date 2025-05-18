@@ -123,27 +123,40 @@ void setup()
 
   app.route(staticFiles());
 
-  asyncServer.on("/brewing", HTTP_POST, [](AsyncWebServerRequest *request)
-                 { 
-    bool isBrewing = false;
-   if(request->hasParam("brewing", true)) {
-    AsyncWebParameter* p = request->getParam("brewing", true); 
-    isBrewing = (p->value()  != "0");
-    brewDetection(isBrewing);
-    request->send(200);
-    } });
+  asyncServer.on("/brewing", HTTP_POST, [](AsyncWebServerRequest *request) {
+      bool isBrewing = false;
+      if (request->hasParam("brewing", true)) {
+          AsyncWebParameter *p = request->getParam("brewing", true);
+          isBrewing = (p->value() != "0");
+          brewDetection(isBrewing);
+          request->send(200);
+      }
+  });
 
-  asyncServer.onNotFound([](AsyncWebServerRequest *request)
-                         {
-  if (request->method() == HTTP_OPTIONS) {
-      AsyncWebServerResponse * response = request->beginResponse(200);
-        response->addHeader("Access-Control-Max-Age", "10000");
-        response->addHeader("Access-Control-Allow-Methods", "PUT,POST,GET,OPTIONS");
-        response->addHeader("Access-Control-Allow-Headers", "*");
-    request->send(response);
-  } else {
-    request->send(404);
-  } });
+  asyncServer.on("/setPoint", HTTP_POST, [](AsyncWebServerRequest *request) {
+      bool isBrewing = false;
+      if (request->hasParam("setpoint", true)) {
+          AsyncWebParameter *p = request->getParam("setpoint", true);
+
+
+          Setpoint = p->value().toDouble();
+          Serial.println(Setpoint);
+          request->send(200);
+      }
+  });
+
+  asyncServer.onNotFound([](AsyncWebServerRequest *request) {
+      if (request->method() == HTTP_OPTIONS) {
+          AsyncWebServerResponse *response = request->beginResponse(200);
+          response->addHeader("Access-Control-Max-Age", "10000");
+          response->addHeader("Access-Control-Allow-Methods", "PUT,POST,GET,OPTIONS");
+          response->addHeader("Access-Control-Allow-Headers", "*");
+          request->send(response);
+      } else {
+          request->send(404);
+      }
+  });
+
 
   // Enable cors
   DefaultHeaders::Instance().addHeader("Access-Control-Allow-Origin", "*");
@@ -266,7 +279,6 @@ void setPressure(int wantedValue)
 }
 
 
-
 //##############################################################################################################################
 //###########################################___________READINGS________________################################################
 //##############################################################################################################################
@@ -332,8 +344,8 @@ void wsSendData()
     payload["temp"] = temperature;        //temperature
     payload["brewTemp"] = temperature;    //temperature
     payload["pressure"] = pressure_bar;   //pressure_bar
-    payload["brewSwitch"] = brewSwitch;   //brew switch status
-    payload["shotGrams"] = shotGrams;     //PSM calculated weight
+    // payload["brewSwitch"] = brewSwitch;   //brew switch status
+    // payload["shotGrams"] = shotGrams;     //PSM calculated weight
 
     myTime = millis() / 1000;
     payload["brewTime"] = myTime;
