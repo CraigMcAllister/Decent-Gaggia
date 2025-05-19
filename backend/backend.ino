@@ -38,8 +38,9 @@ unsigned int isrCounter = 0; // counter for ISR
 AsyncWebSocketClient *globalClient = NULL;
 const float voltageOffset = 0.49;
 
-bool brewSwitch,steamSwitch;
+bool brewSwitch, steamSwitch, lastSteamSwitch;  // Add lastSteamSwitch to track state changes
 double Setpoint, Input, Output, temperature, pressure_bar;
+double manualSetpoint = espressoSetPoint;  // Add manualSetpoint to store user-set value
 
 // PID Values
 double Kp = kpValue, Ki = kiValue, Kd = kdValue;
@@ -134,13 +135,19 @@ void setup()
   });
 
   asyncServer.on("/setPoint", HTTP_POST, [](AsyncWebServerRequest *request) {
-      bool isBrewing = false;
       if (request->hasParam("setpoint", true)) {
           AsyncWebParameter *p = request->getParam("setpoint", true);
-
-
-          Setpoint = p->value().toDouble();
-          Serial.println(Setpoint);
+          double newSetpoint = p->value().toDouble();
+          
+          // Only update if steam switch is not active
+          if (digitalRead(steamPin) != 0) {
+              manualSetpoint = newSetpoint;
+              Setpoint = newSetpoint;
+              Serial.print("Setpoint updated to: ");
+              Serial.println(Setpoint);
+          } else {
+              Serial.println("Cannot change setpoint while in steam mode");
+          }
           request->send(200);
       }
   });
@@ -231,13 +238,19 @@ void readOpto()
 //##############################################################################################################################
 void readSteam()
 {
-  steamSwitch = digitalRead(steamPin);  
-  if (steamSwitch == 0){
-    Setpoint = steamSetPoint;
-  }
-  else{
-    Setpoint = espressoSetPoint;
-  }
+    bool currentSteamSwitch = digitalRead(steamPin);
+    
+    // Only change setpoint if steam switch state has changed
+    if (currentSteamSwitch != lastSteamSwitch) {
+        if (currentSteamSwitch == 0) {
+            manualSetpoint = steamSetPoint;
+            Setpoint = steamSetPoint;
+        } else {
+            manualSetpoint = espressoSetPoint;
+            Setpoint = espressoSetPoint;
+        }
+        lastSteamSwitch = currentSteamSwitch;
+    }
 }
 
 
@@ -336,14 +349,14 @@ void shotMonitor() {
 //##############################################################################################################################
 void wsSendData()
 {
-  
   if (globalClient != NULL && globalClient->status() == WS_CONNECTED && (millis() - wsTimer) > GET_KTYPE_READ_EVERY)
   {
-    StaticJsonDocument<100> payload;
+    StaticJsonDocument<200> payload;  // Increased size to accommodate new field
 
     payload["temp"] = temperature;        //temperature
     payload["brewTemp"] = temperature;    //temperature
     payload["pressure"] = pressure_bar;   //pressure_bar
+    payload["setpoint"] = Setpoint;       //current setpoint
     // payload["brewSwitch"] = brewSwitch;   //brew switch status
     // payload["shotGrams"] = shotGrams;     //PSM calculated weight
 

@@ -43,16 +43,40 @@ const Timer = () => {
     }, [isActive, seconds]);
 
     return (
-        <div className="app">
+        <div className="app card">
             <div className="time">
                 {seconds}s
             </div>
-            <div className="row">
+            <div className="row" style={{ justifyContent: 'center', gap: '8px'}}>
 
-                <Button mat-button color="primary" onClick={toggle}>
+                <Button 
+                    variant="outlined"
+                    onClick={toggle}
+                    sx={{
+                        color: '#E0E0E0',
+                        borderColor: '#333333',
+                        textTransform: 'none',
+                        '&:hover': {
+                            backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                            borderColor: '#E0E0E0',
+                        }
+                    }}
+                >
                     {isActive ? 'Pause' : 'Start'}
                 </Button>
-                <Button className="button" onClick={reset}>
+                <Button 
+                    variant="outlined"
+                    onClick={reset}
+                    sx={{
+                        color: '#E0E0E0',
+                        borderColor: '#333333',
+                        textTransform: 'none',
+                        '&:hover': {
+                            backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                            borderColor: '#E0E0E0',
+                        }
+                    }}
+                >
                     Reset
                 </Button>
             </div>

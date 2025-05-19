@@ -1,28 +1,22 @@
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #121212; /* Dark background */
+  color: #E0E0E0; /* Light foreground/text */
+}
+
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}
+
 .App {
   text-align: center;
-}
-
-.App-logo {
-  animation: App-logo-spin infinite 20s linear;
-  height: 40vmin;
-  pointer-events: none;
-}
-
-.App-header {
-  background-color: #282c34;
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  font-size: calc(10px + 2vmin);
-  color: white;
-}
-.chart-container {
-  height: 80vh;
-}
-.App-link {
-  color: #61dafb;
+  padding-top: 20px;
 }
 
 @keyframes App-logo-spin {
@@ -34,42 +28,153 @@
   }
 }
 
+.container {
+  width: 95%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
 .time {
-  font-size: 3rem;
-  padding: 2rem;
+  font-size: 2.25rem; /* Slightly smaller for dark theme balance */
+  padding: 0.75rem;
+  color: #E0E0E0; /* Light foreground */
 }
 
 .row {
-  align-items: center;
-  justify-content: center;
   display: flex;
   flex-direction: row;
-  /* flex-wrap: wrap; */
   width: 100%;
+  gap: 16px;
+  margin-bottom: 16px;
 }
 .col-1 {
+  flex: 1;
   display: flex;
   flex-direction: column;
-  /* flex-basis: 100%; */
-  flex: 1;
-  align-self: flex-start;
-  margin: auto;
+  align-items: stretch;
 }
 .col-3 {
+  flex: 2; /* Back to 2 as chart might not need to be 3x controls */
   display: flex;
   flex-direction: column;
-  /* flex-basis: 100%; */
-  flex: 2;
-  align-self: flex-start;
+  align-items: stretch;
 }
 
-.container {
-  width: 90%;
-  margin: auto;
+.chart-container {
+  height: 65vh; /* Adjusted height */
+  border: 1px solid #333333; /* Dark border */
+  border-radius: 0.5rem;
+  padding: 16px;
+  background-color: #1E1E1E; /* Dark card background */
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.2), 0 1px 2px 0 rgba(0, 0, 0, 0.12); /* Adjusted shadow for dark */
 }
 
-@media (max-width: 600px) {
-  .row{
-      flex-direction: column;
+@media (max-width: 992px) {
+  .row {
+    flex-direction: column;
   }
+  .col-1, .col-3 {
+    flex-basis: auto;
+    width: 100%;
+    flex: 1; /* Ensure they take up space correctly when stacked */
+  }
+  .chart-container {
+    height: 45vh; /* Adjust chart height for mobile */
+    min-height: 300px; /* Ensure chart has a minimum height */
+  }
+  .time {
+    font-size: 2rem;
+  }
+}
+
+/* General card styling for other components */
+.card {
+  background-color: #1E1E1E; /* Dark card background */
+  border: 1px solid #333333; /* Dark border */
+  border-radius: 0.5rem;
+  padding: 16px;
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.2), 0 1px 2px 0 rgba(0, 0, 0, 0.12); /* Adjusted shadow for dark */
+  margin-bottom: 16px;
+}
+
+/* UI Modernization Styles */
+.control-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 4px; /* Added a little horizontal padding for breathing room inside card */
+  margin-bottom: 0px; /* Was 8px, let border handle separation */
+}
+
+.control-item:not(:last-child) {
+  border-bottom: 1px solid #2A2A2A; /* Subtle separator */
+}
+
+.control-label {
+  font-size: 0.9rem;  /* Slightly smaller */
+  color: #AAAAAA;
+}
+
+.control-value {
+  font-size: 1rem; /* Slightly smaller than original .time */
+  font-weight: 500;
+  color: #E0E0E0;
+}
+
+/* Wrapper for Timer to give it context if it's within the control-item flow */
+.control-item-timer-wrapper {
+  padding: 12px 0; /* Match vertical padding of other control items */
+}
+
+.control-item-timer-wrapper .card { /* Style Timer's card if it's nested */
+  margin-bottom: 0; /* Remove margin if Timer is part of a list */
+  border: none; /* Remove border if nested, let outer card handle it */
+  box-shadow: none; /* Remove shadow if nested */
+  padding: 0; /* Remove padding if nested, spacing handled by wrapper */
+  background-color: transparent; /* Make background transparent if nested */
+}
+
+.control-item-timer-wrapper .time {
+  font-size: 1.5rem; /* Smaller timer display */
+  color: #E0E0E0;
+  margin-bottom: 12px;
+  text-align: center;
+}
+
+.control-item-timer-wrapper .row { /* Target buttons row in Timer */
+  gap: 12px; /* Adjust gap for buttons */
+  margin-bottom: 0; /* No extra margin at the bottom of buttons */
+}
+.control-item-timer-wrapper .MuiButton-outlined {
+  border-color: #555555;
+  color: #BBBBBB;
+  text-transform: none;
+  font-weight: normal; /* Lighter font weight */
+  font-size: 0.85rem; /* Smaller button text */
+  padding: 4px 10px; /* Smaller padding */
+}
+
+.control-item-timer-wrapper .MuiButton-outlined:hover {
+  border-color: #E0E0E0;
+  background-color: rgba(224, 224, 224, 0.08);
+  color: #E0E0E0;
+}
+
+
+.connect-control { /* Specifically for the connect toggle item */
+  padding-top: 16px; /* More space above the connect toggle */
+  padding-bottom: 8px; /* Less space below, as it's often last */
+  border-top: 1px solid #2A2A2A; /* Separator line above connect toggle */
+}
+
+.connect-label {
+  font-size: 0.9rem;
+  color: #AAAAAA;
+}
+
+/* Adjustments to the main .card that holds these controls for consistency */
+.col-1 > .card {
+ padding: 8px 12px; /* Reduce overall padding of the controls card */
 }

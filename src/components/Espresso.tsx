@@ -1,34 +1,23 @@
-import {Switch} from "@mui/material";
+import {Switch, Button} from "@mui/material";
 import React from 'react';
-import {ChartComponentProps, Line} from "react-chartjs-2";
+import {Line} from "react-chartjs-2";
 import './../App.css';
-import ARDUINO_IP from '../config';
 import Timer from "./Timer";
 
-interface IMessage {
-    temp: number;
-    brewTemp: number;
-    pressure: number;
-    brewTime: number;
-}
-
 interface IProps {
+    temp: number;
+    setPoint: number;
+    latestPressure: number;
+    chartData: any;
+    isEspressoWsConnected: boolean;
+    clearChartData: () => void;
 }
 
 interface IState {
-    update: boolean;
-    temp: number;
-    brewTemp: number[];
-    pressure: number[];
-    brewTime: number[];
-    setPoint: number;
-    data: ChartComponentProps;
-    startUp: boolean;
-    wsConnected: boolean;
-
+    showAxes: boolean;
 }
 
-const chartOptions = {
+const chartOptionsOriginal = {
     responsive: true,
     maintainAspectRatio: false,
     elements: {
@@ -41,198 +30,193 @@ const chartOptions = {
             position: "right",
             "id": "pressure",
             gridLines: {
-                display: false
+                display: true,
+                color: 'rgba(255, 255, 255, 0.1)',
+                drawBorder: false,
             },
             ticks: {
-                suggestedMin: 0,    // minimum will be 0, unless there is a lower value.
-                maxTicksLimit: 5,
+                suggestedMin: 0,
+                maxTicksLimit: 4,
+                fontColor: '#888888',
+                padding: 10,
             }
         }, {
             position: "left",
             "id": "temp",
+            gridLines: {
+                display: true,
+                color: 'rgba(255, 255, 255, 0.1)',
+                drawBorder: false,
+            },
             ticks: {
-                suggestedMin: 80,    // minimum will be 0, unless there is a lower value.
-                maxTicksLimit: 5,
+                suggestedMin: 80,
+                maxTicksLimit: 4,
+                fontColor: '#888888',
+                padding: 10,
             }
         }],
         xAxes: [{
             type: 'time',
             time: {
-                parser: 'HH:mm:ss',
-                unit: 'minute',
+                unit: 'second',
                 displayFormats: {
-                    'minute': 'HH:mm:ss',
-                    'hour': 'HH:mm:ss'
-                }
+                    'second': 'HH:mm:ss',
+                    'minute': 'HH:mm',
+                    'hour': 'HH:mm'
+                },
+                tooltipFormat: 'HH:mm:ss',
+            },
+            gridLines: {
+                display: false,
             },
             ticks: {
-                source: 'data',
                 autoSkip: true,
                 maxTicksLimit: 10,
+                fontColor: '#888888',
+                padding: 10,
             },
         }]
+    },
+    legend: {
+        display: true,
+        labels: {
+            fontColor: '#888888',
+            boxWidth: 12,
+            padding: 15,
+        }
+    },
+    tooltips: {
+        enabled: false,
+        backgroundColor: '#2A2A2A',
+        titleFontColor: '#E0E0E0',
+        bodyFontColor: '#E0E0E0',
+        borderColor: '#333333',
+        borderWidth: 1,
+        cornerRadius: 4,
+        mode: 'index',
+        intersect: false,
     }
 }
 
-
 class Espresso extends React.Component<IProps, IState> {
-    ws = new WebSocket(`ws://${ARDUINO_IP.ARDUINO_IP}:90/ws`);
-
     private myRef: React.RefObject<Line>;
 
     constructor(props: IProps) {
         super(props);
         this.myRef = React.createRef();
-
-        let sessionData = sessionStorage.getItem('data');
-        if (sessionData) {
-            this.state = JSON.parse(sessionData);
-            this.myRef.current?.chartInstance.update();
-
-        } else {
-            this.state = {
-                update: false,
-                temp: 20,
-                pressure: [],
-                brewTemp: [],
-                brewTime: [],
-                setPoint: 95,
-                startUp: false,
-                wsConnected: false,
-                data: {
-                    data: {
-                        datasets: [
-                            {
-                                label: "Temperature",
-                                data: [],
-                            },
-                        ]
-                    }
-                }
-            }
-
-        }
-    }
-
-    getTimeString() {
-        return Date.now();
+        this.state = {
+            showAxes: false,
+        };
     }
 
     componentDidMount() {
-        this.myRef.current?.chartInstance.update();
-        this.setState({wsConnected: false});
+        if (this.myRef.current && this.myRef.current.chartInstance) {
+            this.myRef.current.chartInstance.update();
+        }
     }
 
     componentWillUnmount() {
-        let seen: any[] = [];
+        // Any cleanup specific to Espresso component, if necessary
+    }
 
-        let stringified = JSON.stringify(this.state, function (key, val) {
-            if (val != null && typeof val == "object") {
-                if (seen.indexOf(val) >= 0) {
-                    return;
-                }
-                seen.push(val);
+    toggleAxesVisibility = () => {
+        this.setState(prevState => ({ showAxes: !prevState.showAxes }), () => {
+            if (this.myRef.current && this.myRef.current.chartInstance) {
+                this.myRef.current.chartInstance.update();
             }
-            return val;
         });
-        sessionStorage.setItem('data', stringified);
     }
 
-    startConnection = (event: React.ChangeEvent<HTMLInputElement>) => {
-        if (this.state.wsConnected) {
-            this.ws.close();
-            this.setState({wsConnected: false});
-        }
-
-        if (event.target.checked) {
-            this.ws = new WebSocket(`ws://${ARDUINO_IP.ARDUINO_IP}:90/ws`);
-        }
-        this.ws.onopen = () => {
-            // on connecting, do nothing but log it to the console
-            console.log('connected')
-            this.setState({wsConnected: true})
-        }
-
-        this.ws.onmessage = evt => {
-            // listen to data sent from the websocket server
-            const message: IMessage = JSON.parse(evt.data);
-            this.setState({
-                temp: message.temp,
-                brewTime: [...this.state.brewTime, this.getTimeString()],
-                brewTemp: [...this.state.brewTemp, message.brewTemp],
-                pressure: [...this.state.pressure, message.pressure],
-                data: {
-                    data: {
-                        labels: this.state.brewTime,
-                        datasets: [
-                            {
-                                label: "Temperature",
-                                data: this.state.brewTemp,
-                                backgroundColor: "rgba(75,192,192,0.2)",
-                                borderColor: "rgba(75,192,192,0.6)",
-                                yAxisID: 'temp',
-                                fill: false,
-                            },
-                            {
-                                label: "Pressure",
-                                data: this.state.pressure,
-                                backgroundColor: "rgba(0, 72, 255, 0.8)",
-                                borderColor: "rgba(0, 72, 255, 0.6)",
-                                yAxisID: 'pressure',
-                                fill: false,
-                            },
-                        ]
-                    }
-                }
-            });
-        }
-        this.ws.onclose = () => {
-            console.log('disconnected')
-
-            this.setState({wsConnected: false})
-        }
+    handleClearChartData = () => {
+        this.props.clearChartData();
     }
-
-
-    stopConnec = () => {
-        this.ws.close();
-    }
-
 
     render() {
+        const { temp, setPoint, latestPressure, chartData } = this.props;
+
+        const currentChartOptions = JSON.parse(JSON.stringify(chartOptionsOriginal));
+        currentChartOptions.scales.xAxes[0].display = this.state.showAxes;
+        currentChartOptions.scales.yAxes[0].display = this.state.showAxes;
+        currentChartOptions.scales.yAxes[1].display = this.state.showAxes;
+
         return (
             <div className="container">
                 <div className="row">
                     <div className="col-3">
-                        <div className="chart-container">
-                            <Line ref={this.myRef} options={chartOptions} data={this.state.data.data}/>
-                        </div>
-                    </div>
-                    <div className="col-1">
-                        <div>
-                            <p>Temperature</p>
-                            <div id="gauge3" className="gauge-container three">
-                                <span className="time">{this.state.temp}</span>
+                        <div style={{ marginBottom: '10px', textAlign: 'right', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '10px' }}>
+                            <div style={{ display: 'flex', alignItems: 'center'}}>
+                                <span style={{ fontSize: '0.85rem', color: '#BBBBBB', marginRight: '5px' }}>Show Axes</span>
+                                <Switch
+                                    checked={this.state.showAxes}
+                                    onChange={this.toggleAxesVisibility}
+                                    size="small"
+                                    sx={{
+                                        '& .MuiSwitch-switchBase.Mui-checked': {
+                                            color: '#E0E0E0',
+                                            '&:hover': {
+                                                backgroundColor: 'rgba(224, 224, 224, 0.08)',
+                                            },
+                                        },
+                                        '& .MuiSwitch-switchBase.Mui-checked + .MuiSwitch-track': {
+                                            backgroundColor: '#4CAF50',
+                                            opacity: 1,
+                                        },
+                                        '& .MuiSwitch-switchBase': {
+                                            color: '#B0B0B0',
+                                        },
+                                        '& .MuiSwitch-track': {
+                                            backgroundColor: '#424242',
+                                            opacity: 1,
+                                        },
+                                    }}
+                                />
                             </div>
-                            <Timer></Timer>
-                            <p>Connect</p>
-                            <Switch
-                                checked={this.state.wsConnected}
-                                onChange={this.startConnection}
-                                inputProps={{'aria-label': 'controlled'}}
-                            />
+                            <Button
+                                variant="outlined"
+                                onClick={this.handleClearChartData}
+                                sx={{
+                                    color: '#BBBBBB',
+                                    borderColor: '#555555',
+                                    textTransform: 'none',
+                                    fontSize: '0.85rem',
+                                    padding: '4px 10px',
+                                    '&:hover': {
+                                        borderColor: '#E0E0E0',
+                                        backgroundColor: 'rgba(224, 224, 224, 0.08)',
+                                        color: '#E0E0E0',
+                                    }
+                                }}
+                            >
+                                Clear Chart
+                            </Button>
+                        </div>
+                        <div className="chart-container">
+                            <Line ref={this.myRef} options={currentChartOptions} data={chartData}/>
                         </div>
                     </div>
-                </div>
-                <div className="row">
-                    <div className="col-3"></div>
                     <div className="col-1">
-
+                        <div className="card">
+                            <div className="control-item">
+                                <span className="control-label">Temperature</span>
+                                <span className="control-value">{temp.toFixed(2)}°C</span>
+                            </div>
+                            <div className="control-item">
+                                <span className="control-label">Pressure</span>
+                                <span className="control-value">
+                                    {`${latestPressure.toFixed(2)} bar`}
+                                </span>
+                            </div>
+                            <div className="control-item">
+                                <span className="control-label">Setpoint</span>
+                                <span className="control-value">{setPoint.toFixed(2)}°C</span>
+                            </div>
+                            <div className="control-item-timer-wrapper">
+                                <Timer />
+                            </div>
+                        </div>
                     </div>
-
                 </div>
             </div>
-
         );
     }
 }
