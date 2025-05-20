@@ -64,54 +64,62 @@ MAX6675 thermocouple(thermoCLK, thermoCS, thermoDO);
 
 // PWM functions for pump control
 void setupPWM() {
-  // Configure PWM for pump control
-  ledcSetup(PWM_CHANNEL, PWM_FREQUENCY, PWM_RESOLUTION);
-  ledcAttachPin(pumpPin, PWM_CHANNEL);
+  // Configure pump pin as output
+  pinMode(pumpPin, OUTPUT);
   // Start with pump off
-  ledcWrite(PWM_CHANNEL, 0);
+  digitalWrite(pumpPin, LOW);
 }
 
-// Safely ramp the pump duty cycle to avoid sudden changes
-void setPumpDuty(uint8_t targetDuty) {
-  // Ensure we don't exceed maximum duty cycle
-  if (targetDuty > PWM_MAX_DUTY) {
-    targetDuty = PWM_MAX_DUTY;
-  }
-  
-  // Gradually ramp up/down to protect pump
-  int step = (targetDuty > currentPumpDuty) ? 1 : -1;
-  
-  while (currentPumpDuty != targetDuty) {
-    currentPumpDuty += step;
-    ledcWrite(PWM_CHANNEL, currentPumpDuty);
-    delay(PWM_RAMP_DELAY);
-  }
-  
-  // Update flow tracking when pump is running
-  if (currentPumpDuty > 0 && pumpStartTime == 0) {
-    pumpStartTime = millis();
-  } else if (currentPumpDuty == 0 && pumpStartTime > 0) {
-    pumpRunTime += (millis() - pumpStartTime);
-    pumpStartTime = 0;
-  }
-}
+// Pump state variables
+unsigned long lastPumpOffTime = 0;
+bool pumpState = false;
+const unsigned long PUMP_RESET_DELAY = 200; // 200ms safety delay
 
-// Calculate flow estimation based on pump duty and runtime
-void updateFlowCounter() {
-  if (currentPumpDuty > 0) {
-    unsigned long runTime = pumpRunTime;
-    if (pumpStartTime > 0) {
-      runTime += (millis() - pumpStartTime);
+// Safely control the pump with required reset time
+void setPumpState(bool targetState) {
+  unsigned long currentTime = millis();
+  
+  // If we're trying to turn the pump on
+  if (targetState && !pumpState) {
+    // Check if enough time has passed since last turn-off
+    if (lastPumpOffTime == 0 || (currentTime - lastPumpOffTime) > PUMP_RESET_DELAY) {
+      digitalWrite(pumpPin, HIGH);
+      pumpState = true;
+      
+      // Update flow tracking when pump starts running
+      if (pumpStartTime == 0) {
+        pumpStartTime = currentTime;
+      }
     }
-    // Estimate flow based on duty cycle and run time
-    flowCounter = (runTime * currentPumpDuty * FLOW_ESTIMATION_FACTOR);
+  } 
+  // If we're trying to turn the pump off
+  else if (!targetState && pumpState) {
+    digitalWrite(pumpPin, LOW);
+    pumpState = false;
+    lastPumpOffTime = currentTime;
+    
+    // Update flow tracking when pump stops
+    if (pumpStartTime > 0) {
+      pumpRunTime += (currentTime - pumpStartTime);
+      pumpStartTime = 0;
+    }
   }
+}
+
+// Calculate flow estimation based on pump runtime
+void updateFlowCounter() {
+  unsigned long runTime = pumpRunTime;
+  if (pumpStartTime > 0) {
+    runTime += (millis() - pumpStartTime);
+  }
+  // Estimate flow based on run time
+  flowCounter = (runTime * FLOW_ESTIMATION_FACTOR);
 }
 
 void resetFlowCounter() {
   flowCounter = 0;
   pumpRunTime = 0;
-  pumpStartTime = (currentPumpDuty > 0) ? millis() : 0;
+  pumpStartTime = (pumpState) ? millis() : 0;
 }
 
 // Timer ISR for PID calculation and heater control
@@ -479,28 +487,27 @@ void pressureReading()
   float pressure_psi = pressure_bar * 14.5038;  
 }
 
-void setPressure(int wantedValue)
-{
+// Replace the existing setPressure with binary pressure control
+void setPressure(int wantedValue) {
   pressureReading();
   
-  // Calculate duty cycle based on pressure difference
-  int pressureDiff = wantedValue - pressure_bar;
-  uint8_t targetDuty = 0;
-  
-  if (pressureDiff > 0) {
-    // Map pressure difference to duty cycle (0-200)
-    // Scale factor 25 can be adjusted for better control
-    targetDuty = constrain(pressureDiff * 25, 0, PWM_MAX_DUTY);
+  // Simple binary control with hysteresis
+  if (pressure_bar < wantedValue - 0.3) {
+    // Pressure too low, turn pump on
+    setPumpState(true);
+  } 
+  else if (pressure_bar > wantedValue - 0.1) {
+    // Pressure too high, turn pump off
+    setPumpState(false);
   }
+  // Otherwise maintain current state (hysteresis)
   
   Serial.print("Pressure: ");
   Serial.print(pressure_bar);
   Serial.print(" bar, Target: ");
   Serial.print(wantedValue);
-  Serial.print(" bar, Setting pump duty to: ");
-  Serial.println(targetDuty);
-  
-  setPumpDuty(targetDuty);
+  Serial.print(" bar, Pump: ");
+  Serial.println(pumpState ? "ON" : "OFF");
 }
 
 
@@ -555,7 +562,7 @@ void shotMonitor() {
   }
   else{
     // Stop pump when brew switch off
-    setPumpDuty(0);
+    setPumpState(false);
     shotStarted = false;
     scalesStarted = false;
   }
@@ -581,7 +588,7 @@ void wsSendData()
     payload["setpoint"] = Setpoint;       //current setpoint
     payload["brewSwitch"] = brewSwitch;   //brew switch status
     payload["shotGrams"] = shotGrams;     //Flow calculated weight
-    payload["pumpDuty"] = currentPumpDuty; //Current pump duty cycle
+    payload["pumpDuty"] = pumpState ? 100 : 0; // Report 100% or 0% duty
     
     // Add pre-infusion status
     bool isPreInfusing = !brewSwitch && shotStarted && ((millis() - shotTime) < currentPreInfusionTime*1000);
