@@ -1,4 +1,4 @@
-import {Switch, Button} from "@mui/material";
+import {Switch, Button, Chip} from "@mui/material";
 import React from 'react';
 import {Line} from "react-chartjs-2";
 import './../App.css';
@@ -11,10 +11,11 @@ interface IProps {
     chartData: any;
     isEspressoWsConnected: boolean;
     clearChartData: () => void;
+    brewSwitch?: boolean;
 }
 
 interface IState {
-    showAxes: boolean;
+    advancedMode: boolean;
 }
 
 const chartOptionsOriginal = {
@@ -50,6 +51,20 @@ const chartOptionsOriginal = {
             },
             ticks: {
                 suggestedMin: 80,
+                maxTicksLimit: 4,
+                fontColor: '#888888',
+                padding: 10,
+            }
+        }, {
+            position: "left",
+            "id": "zerocross",
+            gridLines: {
+                display: false,
+                color: 'rgba(255, 255, 255, 0.1)',
+                drawBorder: false,
+            },
+            ticks: {
+                suggestedMin: 0,
                 maxTicksLimit: 4,
                 fontColor: '#888888',
                 padding: 10,
@@ -105,7 +120,7 @@ class Espresso extends React.Component<IProps, IState> {
         super(props);
         this.myRef = React.createRef();
         this.state = {
-            showAxes: false,
+            advancedMode: false,
         };
     }
 
@@ -119,10 +134,18 @@ class Espresso extends React.Component<IProps, IState> {
         // Any cleanup specific to Espresso component, if necessary
     }
 
-    toggleAxesVisibility = () => {
-        this.setState(prevState => ({ showAxes: !prevState.showAxes }), () => {
+    toggleAdvancedMode = () => {
+        this.setState(prevState => ({ advancedMode: !prevState.advancedMode }), () => {
             if (this.myRef.current && this.myRef.current.chartInstance) {
-                this.myRef.current.chartInstance.update();
+                // Show/hide zerocross dataset based on advanced mode toggle
+                const chartInstance = this.myRef.current.chartInstance;
+                const zerocrossDataset = chartInstance.data.datasets.find((ds: any) => ds.label === "Zerocross");
+                
+                if (zerocrossDataset) {
+                    zerocrossDataset.hidden = !this.state.advancedMode;
+                }
+                
+                chartInstance.update();
             }
         });
     }
@@ -132,12 +155,14 @@ class Espresso extends React.Component<IProps, IState> {
     }
 
     render() {
-        const { temp, setPoint, latestPressure, chartData } = this.props;
+        const { temp, setPoint, latestPressure, chartData, brewSwitch } = this.props;
+        const isBrewing = brewSwitch === false; // brewSwitch is false when brewing
 
         const currentChartOptions = JSON.parse(JSON.stringify(chartOptionsOriginal));
-        currentChartOptions.scales.xAxes[0].display = this.state.showAxes;
-        currentChartOptions.scales.yAxes[0].display = this.state.showAxes;
-        currentChartOptions.scales.yAxes[1].display = this.state.showAxes;
+        currentChartOptions.scales.xAxes[0].display = this.state.advancedMode;
+        currentChartOptions.scales.yAxes[0].display = this.state.advancedMode;
+        currentChartOptions.scales.yAxes[1].display = this.state.advancedMode;
+        currentChartOptions.scales.yAxes[2].display = this.state.advancedMode;
 
         return (
             <div className="container">
@@ -145,10 +170,10 @@ class Espresso extends React.Component<IProps, IState> {
                     <div className="col-3">
                         <div style={{ marginBottom: '10px', textAlign: 'right', display: 'flex', justifyContent: 'flex-end', alignItems: 'center', gap: '10px' }}>
                             <div style={{ display: 'flex', alignItems: 'center'}}>
-                                <span style={{ fontSize: '0.85rem', color: '#BBBBBB', marginRight: '5px' }}>Show Axes</span>
+                                <span style={{ fontSize: '0.85rem', color: '#BBBBBB', marginRight: '5px' }}>Advanced</span>
                                 <Switch
-                                    checked={this.state.showAxes}
-                                    onChange={this.toggleAxesVisibility}
+                                    checked={this.state.advancedMode}
+                                    onChange={this.toggleAdvancedMode}
                                     size="small"
                                     sx={{
                                         '& .MuiSwitch-switchBase.Mui-checked': {
@@ -210,8 +235,21 @@ class Espresso extends React.Component<IProps, IState> {
                                 <span className="control-label">Setpoint</span>
                                 <span className="control-value">{setPoint.toFixed(2)}°C</span>
                             </div>
+                            <div className="control-item">
+                                <span className="control-label">Status</span>
+                                <Chip 
+                                    label={isBrewing ? "BREWING" : "IDLE"} 
+                                    size="small"
+                                    sx={{
+                                        backgroundColor: isBrewing ? '#4CAF50' : '#757575',
+                                        color: '#FFFFFF',
+                                        fontSize: '0.75rem',
+                                        height: '24px',
+                                    }}
+                                />
+                            </div>
                             <div className="control-item-timer-wrapper">
-                                <Timer />
+                                <Timer brewSwitch={brewSwitch} autoControl={true} />
                             </div>
                         </div>
                     </div>

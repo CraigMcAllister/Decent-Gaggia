@@ -49,7 +49,9 @@ export default function BasicTabs() {
     const [pressureHistory, setPressureHistory] = useState([]);
     const [brewTempHistory, setBrewTempHistory] = useState([]);
     const [brewTimeHistory, setBrewTimeHistory] = useState([]);
+    const [zerocrossHistory, setZerocrossHistory] = useState([]);
     const [isEspressoWsConnected, setIsEspressoWsConnected] = useState(false);
+    const [brewSwitch, setBrewSwitch] = useState(true);
     
     const wsRef = useRef(null);
     const reconnectTimeoutRef = useRef(null);
@@ -94,12 +96,23 @@ export default function BasicTabs() {
                 setTemp(prevTemp => message.temp !== undefined ? message.temp : prevTemp);
                 setSetPointFromEspresso(prevSp => message.setpoint !== undefined ? message.setpoint : prevSp);
                 
+                if (message.brewSwitch !== undefined) {
+                    setBrewSwitch(message.brewSwitch);
+                }
+                
                 const newTime = getTimeString();
 
                 if (message.brewTemp !== undefined && message.pressure !== undefined) {
                      setBrewTempHistory(prev => [...prev, message.brewTemp]);
                      setPressureHistory(prev => [...prev, message.pressure]);
                      setBrewTimeHistory(prev => [...prev, newTime]);
+                     
+                     // Add zerocross data if available
+                     if (message.zerocross !== undefined) {
+                         setZerocrossHistory(prev => [...prev, message.zerocross]);
+                     } else {
+                         setZerocrossHistory(prev => [...prev, 0]);
+                     }
                 }
             } catch (error) {
                 console.error('Error parsing Espresso WebSocket message:', error);
@@ -139,6 +152,7 @@ export default function BasicTabs() {
         setBrewTempHistory([]);
         setPressureHistory([]);
         setBrewTimeHistory([]);
+        setZerocrossHistory([]);
     }, []);
 
     useEffect(() => {
@@ -163,6 +177,7 @@ export default function BasicTabs() {
                 if (storedState.pressureHistory) setPressureHistory(storedState.pressureHistory);
                 if (storedState.brewTempHistory) setBrewTempHistory(storedState.brewTempHistory);
                 if (storedState.brewTimeHistory) setBrewTimeHistory(storedState.brewTimeHistory);
+                if (storedState.zerocrossHistory) setZerocrossHistory(storedState.zerocrossHistory);
             }
         } catch (e) {
             console.error("Failed to load state from sessionStorage", e);
@@ -177,12 +192,13 @@ export default function BasicTabs() {
                 pressureHistory,
                 brewTempHistory,
                 brewTimeHistory,
+                zerocrossHistory,
             };
             sessionStorage.setItem('espressoAppState', JSON.stringify(stateToSave));
         } catch (e) {
             console.error("Failed to save state to sessionStorage", e);
         }
-    }, [temp, setPointFromEspresso, pressureHistory, brewTempHistory, brewTimeHistory]);
+    }, [temp, setPointFromEspresso, pressureHistory, brewTempHistory, brewTimeHistory, zerocrossHistory]);
 
     const handleChange = (event, newValue) => {
         setValue(newValue);
@@ -208,6 +224,16 @@ export default function BasicTabs() {
                 yAxisID: 'pressure',
                 fill: true,
                 borderWidth: 1.5,
+            },
+            {
+                label: "Zerocross",
+                data: zerocrossHistory,
+                backgroundColor: "rgba(255, 193, 7, 0.1)",
+                borderColor: "#FFC107",
+                yAxisID: 'zerocross',
+                fill: false,
+                borderWidth: 1.5,
+                hidden: true,
             },
         ]
     };
@@ -244,6 +270,7 @@ export default function BasicTabs() {
                     chartData={chartDataObject}
                     isEspressoWsConnected={isEspressoWsConnected}
                     clearChartData={clearChartDataInBasicTabs}
+                    brewSwitch={brewSwitch}
                 />
             </TabPanel>
             <TabPanel value={value} index={1}>

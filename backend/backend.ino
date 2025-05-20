@@ -357,8 +357,9 @@ void wsSendData()
     payload["brewTemp"] = temperature;    //temperature
     payload["pressure"] = pressure_bar;   //pressure_bar
     payload["setpoint"] = Setpoint;       //current setpoint
-    // payload["brewSwitch"] = brewSwitch;   //brew switch status
-    // payload["shotGrams"] = shotGrams;     //PSM calculated weight
+    payload["brewSwitch"] = brewSwitch;   //brew switch status
+    payload["shotGrams"] = shotGrams;     //PSM calculated weight
+    payload["zerocross"] = pump.getCounter(); //PSM zerocross data
 
     myTime = millis() / 1000;
     payload["brewTime"] = myTime;
