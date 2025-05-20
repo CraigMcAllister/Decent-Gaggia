@@ -49,9 +49,11 @@ export default function BasicTabs() {
     const [pressureHistory, setPressureHistory] = useState([]);
     const [brewTempHistory, setBrewTempHistory] = useState([]);
     const [brewTimeHistory, setBrewTimeHistory] = useState([]);
-    const [zerocrossHistory, setZerocrossHistory] = useState([]);
+    const [pumpDutyHistory, setPumpDutyHistory] = useState([]);
+    const [currentPumpDuty, setCurrentPumpDuty] = useState(0);
     const [isEspressoWsConnected, setIsEspressoWsConnected] = useState(false);
     const [brewSwitch, setBrewSwitch] = useState(true);
+    const [isPreInfusing, setIsPreInfusing] = useState(false);
     
     const wsRef = useRef(null);
     const reconnectTimeoutRef = useRef(null);
@@ -100,6 +102,16 @@ export default function BasicTabs() {
                     setBrewSwitch(message.brewSwitch);
                 }
                 
+                // Track pre-infusion status
+                if (message.preInfusing !== undefined) {
+                    setIsPreInfusing(message.preInfusing);
+                }
+                
+                // Update pump duty if available
+                if (message.pumpDuty !== undefined) {
+                    setCurrentPumpDuty(message.pumpDuty);
+                }
+                
                 const newTime = getTimeString();
 
                 if (message.brewTemp !== undefined && message.pressure !== undefined) {
@@ -107,11 +119,11 @@ export default function BasicTabs() {
                      setPressureHistory(prev => [...prev, message.pressure]);
                      setBrewTimeHistory(prev => [...prev, newTime]);
                      
-                     // Add zerocross data if available
-                     if (message.zerocross !== undefined) {
-                         setZerocrossHistory(prev => [...prev, message.zerocross]);
+                     // Add pump duty data if available
+                     if (message.pumpDuty !== undefined) {
+                         setPumpDutyHistory(prev => [...prev, message.pumpDuty]);
                      } else {
-                         setZerocrossHistory(prev => [...prev, 0]);
+                         setPumpDutyHistory(prev => [...prev, 0]);
                      }
                 }
             } catch (error) {
@@ -152,7 +164,7 @@ export default function BasicTabs() {
         setBrewTempHistory([]);
         setPressureHistory([]);
         setBrewTimeHistory([]);
-        setZerocrossHistory([]);
+        setPumpDutyHistory([]);
     }, []);
 
     useEffect(() => {
@@ -177,7 +189,8 @@ export default function BasicTabs() {
                 if (storedState.pressureHistory) setPressureHistory(storedState.pressureHistory);
                 if (storedState.brewTempHistory) setBrewTempHistory(storedState.brewTempHistory);
                 if (storedState.brewTimeHistory) setBrewTimeHistory(storedState.brewTimeHistory);
-                if (storedState.zerocrossHistory) setZerocrossHistory(storedState.zerocrossHistory);
+                if (storedState.pumpDutyHistory) setPumpDutyHistory(storedState.pumpDutyHistory);
+                if (storedState.isPreInfusing !== undefined) setIsPreInfusing(storedState.isPreInfusing);
             }
         } catch (e) {
             console.error("Failed to load state from sessionStorage", e);
@@ -192,13 +205,14 @@ export default function BasicTabs() {
                 pressureHistory,
                 brewTempHistory,
                 brewTimeHistory,
-                zerocrossHistory,
+                pumpDutyHistory,
+                isPreInfusing
             };
             sessionStorage.setItem('espressoAppState', JSON.stringify(stateToSave));
         } catch (e) {
             console.error("Failed to save state to sessionStorage", e);
         }
-    }, [temp, setPointFromEspresso, pressureHistory, brewTempHistory, brewTimeHistory, zerocrossHistory]);
+    }, [temp, setPointFromEspresso, pressureHistory, brewTempHistory, brewTimeHistory, pumpDutyHistory, isPreInfusing]);
 
     const handleChange = (event, newValue) => {
         setValue(newValue);
@@ -226,11 +240,11 @@ export default function BasicTabs() {
                 borderWidth: 1.5,
             },
             {
-                label: "Zerocross",
-                data: zerocrossHistory,
+                label: "Pump Duty",
+                data: pumpDutyHistory,
                 backgroundColor: "rgba(255, 193, 7, 0.1)",
                 borderColor: "#FFC107",
-                yAxisID: 'zerocross',
+                yAxisID: 'pumpDuty',
                 fill: false,
                 borderWidth: 1.5,
                 hidden: true,
@@ -271,6 +285,8 @@ export default function BasicTabs() {
                     isEspressoWsConnected={isEspressoWsConnected}
                     clearChartData={clearChartDataInBasicTabs}
                     brewSwitch={brewSwitch}
+                    pumpDuty={currentPumpDuty}
+                    isPreInfusing={isPreInfusing}
                 />
             </TabPanel>
             <TabPanel value={value} index={1}>

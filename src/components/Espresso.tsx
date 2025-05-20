@@ -12,6 +12,8 @@ interface IProps {
     isEspressoWsConnected: boolean;
     clearChartData: () => void;
     brewSwitch?: boolean;
+    pumpDuty?: number;
+    isPreInfusing?: boolean;
 }
 
 interface IState {
@@ -57,7 +59,7 @@ const chartOptionsOriginal = {
             }
         }, {
             position: "left",
-            "id": "zerocross",
+            "id": "pumpDuty",
             gridLines: {
                 display: false,
                 color: 'rgba(255, 255, 255, 0.1)',
@@ -65,6 +67,7 @@ const chartOptionsOriginal = {
             },
             ticks: {
                 suggestedMin: 0,
+                suggestedMax: 200,
                 maxTicksLimit: 4,
                 fontColor: '#888888',
                 padding: 10,
@@ -137,12 +140,12 @@ class Espresso extends React.Component<IProps, IState> {
     toggleAdvancedMode = () => {
         this.setState(prevState => ({ advancedMode: !prevState.advancedMode }), () => {
             if (this.myRef.current && this.myRef.current.chartInstance) {
-                // Show/hide zerocross dataset based on advanced mode toggle
+                // Show/hide pumpDuty dataset based on advanced mode toggle
                 const chartInstance = this.myRef.current.chartInstance;
-                const zerocrossDataset = chartInstance.data.datasets.find((ds: any) => ds.label === "Zerocross");
+                const pumpDutyDataset = chartInstance.data.datasets.find((ds: any) => ds.label === "Pump Duty");
                 
-                if (zerocrossDataset) {
-                    zerocrossDataset.hidden = !this.state.advancedMode;
+                if (pumpDutyDataset) {
+                    pumpDutyDataset.hidden = !this.state.advancedMode;
                 }
                 
                 chartInstance.update();
@@ -155,8 +158,22 @@ class Espresso extends React.Component<IProps, IState> {
     }
 
     render() {
-        const { temp, setPoint, latestPressure, chartData, brewSwitch } = this.props;
+        const { temp, setPoint, latestPressure, chartData, brewSwitch, pumpDuty, isPreInfusing } = this.props;
         const isBrewing = brewSwitch === false; // brewSwitch is false when brewing
+
+        // Determine status label and color
+        let statusLabel = "IDLE";
+        let statusColor = '#757575'; // Gray for idle
+        
+        if (isBrewing) {
+            if (isPreInfusing) {
+                statusLabel = "PRE-INFUSING";
+                statusColor = '#FFC107'; // Amber for pre-infusion
+            } else {
+                statusLabel = "BREWING";
+                statusColor = '#4CAF50'; // Green for brewing
+            }
+        }
 
         const currentChartOptions = JSON.parse(JSON.stringify(chartOptionsOriginal));
         currentChartOptions.scales.xAxes[0].display = this.state.advancedMode;
@@ -235,13 +252,19 @@ class Espresso extends React.Component<IProps, IState> {
                                 <span className="control-label">Setpoint</span>
                                 <span className="control-value">{setPoint.toFixed(2)}°C</span>
                             </div>
+                            {pumpDuty !== undefined && (
+                                <div className="control-item">
+                                    <span className="control-label">Pump Duty</span>
+                                    <span className="control-value">{pumpDuty}</span>
+                                </div>
+                            )}
                             <div className="control-item">
                                 <span className="control-label">Status</span>
                                 <Chip 
-                                    label={isBrewing ? "BREWING" : "IDLE"} 
+                                    label={statusLabel} 
                                     size="small"
                                     sx={{
-                                        backgroundColor: isBrewing ? '#4CAF50' : '#757575',
+                                        backgroundColor: statusColor,
                                         color: '#FFFFFF',
                                         fontSize: '0.75rem',
                                         height: '24px',

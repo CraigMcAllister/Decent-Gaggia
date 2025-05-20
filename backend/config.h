@@ -10,12 +10,15 @@
 #define steamPin 15  // Steam switch input
 
 #define pumpPin 12  // Pump control pin
-#define zeroCross 2 // for boards with CHANGEBLE input pins
-//Banoz PSM for more cool shit visit https://github.com/banoz  and don't forget to star
-const unsigned int range = 100;
-PSM pump(zeroCross, pumpPin, range, RISING, 2, 4);
-#define psmToGrams 70.8/10958
+// PWM configuration for pump control
+#define PWM_CHANNEL 0
+#define PWM_FREQUENCY 1000  // 1kHz frequency
+#define PWM_RESOLUTION 8    // 8-bit resolution (0-255)
+#define PWM_MAX_DUTY 200    // Maximum safe duty cycle (0-255)
+#define PWM_RAMP_DELAY 20   // ms delay between PWM changes for soft start/stop
 
+// Flow estimation parameters (replace PSM counter)
+#define FLOW_ESTIMATION_FACTOR 0.00645  // Estimation factor for flow calculation
 
 // Set point for different beans:
 // 94C - Cama Decaf

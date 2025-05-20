@@ -1,35 +1,85 @@
 import React, {useRef, useState, useEffect, useCallback} from 'react';
 import './../App.css';
 import ARDUINO_IP from '../config';
-import {Button, Slider, Alert, CircularProgress, Typography, Switch} from "@mui/material";
+import {Button, Slider, Alert, CircularProgress, Typography, Switch, Grid, Divider} from "@mui/material";
 
 const Config = (props) => {
     const { isEspressoWsConnected, toggleEspressoConnection, currentMachineSetpoint } = props;
 
     const input = useRef();
-    const [isLoading, setIsLoading] = useState(true);
     const [setPointVal, setSetPointVal] = useState(96);
+    const [preInfusionTime, setPreInfusionTime] = useState(8);
+    const [preInfusionPressure, setPreInfusionPressure] = useState(3);
+    const [shotPressure, setShotPressure] = useState(8);
+    const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState(null);
     const [isUpdating, setIsUpdating] = useState(false);
+    const isUserChangePending = useRef(false);
 
     useEffect(() => {
-        if (typeof currentMachineSetpoint === 'number') {
+        // Load all settings from localStorage
+        const storedSetpoint = localStorage.getItem('setpoint');
+        const storedPreInfusionTime = localStorage.getItem('preInfusionTime');
+        const storedPreInfusionPressure = localStorage.getItem('preInfusionPressure');
+        const storedShotPressure = localStorage.getItem('shotPressure');
+        
+        if (storedSetpoint !== null) {
+            setSetPointVal(parseFloat(storedSetpoint));
+        } else if (typeof currentMachineSetpoint === 'number') {
             setSetPointVal(currentMachineSetpoint);
-            if (isLoading) setIsLoading(false);
-        } else if (isLoading) {
-            const timer = setTimeout(() => {
-                if (isLoading) {
-                    console.warn('Config: currentMachineSetpoint prop not received, using default for slider.');
-                    setIsLoading(false);
-                }
-            }, 3000);
-            return () => clearTimeout(timer);
         }
-    }, [currentMachineSetpoint, isLoading]);
+        
+        if (storedPreInfusionTime !== null) {
+            setPreInfusionTime(parseFloat(storedPreInfusionTime));
+        }
+        
+        if (storedPreInfusionPressure !== null) {
+            setPreInfusionPressure(parseFloat(storedPreInfusionPressure));
+        }
+        
+        if (storedShotPressure !== null) {
+            setShotPressure(parseFloat(storedShotPressure));
+        }
+        
+        // Initialize config from server when first loading
+        fetchConfigFromServer();
+        
+        setIsLoading(false);
+    }, []);
+
+    useEffect(() => {
+        if (!isLoading && typeof currentMachineSetpoint === 'number') {
+            if (!isUserChangePending.current && !isUpdating) {
+                setSetPointVal(currentVal => {
+                    if (currentVal !== currentMachineSetpoint) {
+                        console.log(`Config: Syncing setPointVal from prop ${currentMachineSetpoint} (was ${currentVal})`);
+                        return currentMachineSetpoint;
+                    }
+                    return currentVal;
+                });
+            }
+        }
+    }, [currentMachineSetpoint, isLoading, isUpdating]);
+
+    const fetchConfigFromServer = async () => {
+        try {
+            const response = await fetch(`http://${ARDUINO_IP.ARDUINO_IP}:80/getConfig`);
+            if (response.ok) {
+                const config = await response.json();
+                if (config.preInfusionTime) setPreInfusionTime(config.preInfusionTime);
+                if (config.preInfusionPressure) setPreInfusionPressure(config.preInfusionPressure);
+                if (config.shotPressure) setShotPressure(config.shotPressure);
+                console.log('Config loaded from server:', config);
+            }
+        } catch (err) {
+            console.error('Failed to fetch config from server:', err);
+        }
+    };
 
     const debounce = useCallback((func, wait) => {
         let timeout;
         return (...args) => {
+            isUserChangePending.current = true;
             const later = () => {
                 clearTimeout(timeout);
                 func(...args);
@@ -39,21 +89,22 @@ const Config = (props) => {
         };
     }, []);
 
-    const handleChange = (event, newValue) => {
-        setSetPointVal(newValue);
-        setError(null);
-    };
-
-    const submitData = useCallback(async (valueToSubmit) => {
+    const submitData = useCallback(async (valueToSubmit, paramName) => {
         if (isUpdating) return;
+
         setIsUpdating(true);
         setError(null);
         
         try {
             let formData = new FormData();
-            formData.append('setpoint', valueToSubmit.toString());
+            formData.append(paramName, valueToSubmit.toString());
             
-            const response = await fetch(`http://${ARDUINO_IP.ARDUINO_IP}:80/setPoint`, {
+            let endpoint = 'setPoint';
+            if (paramName !== 'setpoint') {
+                endpoint = 'config';
+            }
+            
+            const response = await fetch(`http://${ARDUINO_IP.ARDUINO_IP}:80/${endpoint}`, {
                 method: 'POST',
                 body: formData
             });
@@ -61,22 +112,44 @@ const Config = (props) => {
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
-            console.log('Setpoint updated successfully via fetch:', valueToSubmit);
+            
+            // Save to localStorage for client-side persistence
+            localStorage.setItem(paramName, valueToSubmit.toString());
+            console.log(`${paramName} updated successfully:`, valueToSubmit);
         } catch (err) {
-            console.error('Error updating setpoint via fetch:', err);
-            setError('Failed to update temperature setpoint. Please try again.');
+            console.error(`Error updating ${paramName}:`, err);
+            setError(`Failed to update ${paramName}. Please try again.`);
         } finally {
             setIsUpdating(false);
+            isUserChangePending.current = false;
         }
     }, [isUpdating]);
 
-    const debouncedSubmit = useCallback(debounce(submitData, 700), [submitData]);
+    const debouncedSubmit = useCallback(debounce((value, paramName) => submitData(value, paramName), 700), [submitData, debounce]);
 
-    useEffect(() => {
-        if (!isLoading && typeof setPointVal === 'number' && setPointVal !== currentMachineSetpoint) {
-            debouncedSubmit(setPointVal);
-        }
-    }, [setPointVal, isLoading, currentMachineSetpoint, debouncedSubmit]);
+    const handleSetpointChange = (event, newValue) => {
+        setSetPointVal(newValue);
+        setError(null);
+        debouncedSubmit(newValue, 'setpoint');
+    };
+
+    const handlePreInfusionTimeChange = (event, newValue) => {
+        setPreInfusionTime(newValue);
+        setError(null);
+        debouncedSubmit(newValue, 'preInfusionTime');
+    };
+
+    const handlePreInfusionPressureChange = (event, newValue) => {
+        setPreInfusionPressure(newValue);
+        setError(null);
+        debouncedSubmit(newValue, 'preInfusionPressure');
+    };
+
+    const handleShotPressureChange = (event, newValue) => {
+        setShotPressure(newValue);
+        setError(null);
+        debouncedSubmit(newValue, 'shotPressure');
+    };
 
     return (
         <div className="container card" style={{ marginTop: '16px' }}>
@@ -115,32 +188,122 @@ const Config = (props) => {
                     <CircularProgress sx={{ color: '#E0E0E0' }} />
                 </div>
             ) : (
-                <>
-                    <Typography gutterBottom sx={{ color: '#888888', textAlign: 'left', fontSize: '0.875rem' }}>
-                        Temperature Setpoint
-                    </Typography>
-                    <Slider
-                        valueLabelDisplay="auto"
-                        value={typeof setPointVal === 'number' ? setPointVal : 0}
-                        max={120}
-                        min={80}
-                        marks
-                        onChange={handleChange}
-                        disabled={isUpdating}
-                        ref={input}
-                        sx={{
-                            color: '#E0E0E0',
-                            '& .MuiSlider-thumb': { backgroundColor: '#E0E0E0' },
-                            '& .MuiSlider-rail': { color: '#424242', opacity: 1 },
-                            '& .MuiSlider-track': { color: '#E0E0E0' },
-                            '& .MuiSlider-markLabel': { color: '#888888' },
-                            '& .MuiSlider-mark': { backgroundColor: '#888888' }
-                        }}
-                    />
-                    <div style={{ marginTop: '10px', color: '#E0E0E0', textAlign: 'right' }}>
-                        {`${typeof setPointVal === 'number' ? setPointVal.toFixed(1) : 'N/A'}°C`}
-                    </div>
-                </>
+                <Grid container spacing={3}>
+                    <Grid item xs={12}>
+                        <Typography gutterBottom sx={{ color: '#888888', textAlign: 'left', fontSize: '0.875rem' }}>
+                            Temperature Setpoint
+                        </Typography>
+                        <Slider
+                            valueLabelDisplay="auto"
+                            value={typeof setPointVal === 'number' ? setPointVal : 0}
+                            max={120}
+                            min={80}
+                            marks
+                            onChange={handleSetpointChange}
+                            disabled={isUpdating}
+                            ref={input}
+                            sx={{
+                                color: '#E0E0E0',
+                                '& .MuiSlider-thumb': { backgroundColor: '#E0E0E0' },
+                                '& .MuiSlider-rail': { color: '#424242', opacity: 1 },
+                                '& .MuiSlider-track': { color: '#E0E0E0' },
+                                '& .MuiSlider-markLabel': { color: '#888888' },
+                                '& .MuiSlider-mark': { backgroundColor: '#888888' }
+                            }}
+                        />
+                        <div style={{ marginTop: '10px', color: '#E0E0E0', textAlign: 'right' }}>
+                            {`${typeof setPointVal === 'number' ? setPointVal.toFixed(1) : 'N/A'}°C`}
+                        </div>
+                    </Grid>
+                    
+                    <Grid item xs={12}>
+                        <Divider sx={{ my: 2, bgcolor: '#333333' }} />
+                        <Typography gutterBottom sx={{ color: '#E0E0E0', textAlign: 'left', fontSize: '1rem', mb: 2 }}>
+                            Extraction Parameters
+                        </Typography>
+                    </Grid>
+                    
+                    <Grid item xs={12}>
+                        <Typography gutterBottom sx={{ color: '#888888', textAlign: 'left', fontSize: '0.875rem' }}>
+                            Pre-Infusion Time (seconds)
+                        </Typography>
+                        <Slider
+                            valueLabelDisplay="auto"
+                            value={preInfusionTime}
+                            max={15}
+                            min={0}
+                            step={0.5}
+                            marks
+                            onChange={handlePreInfusionTimeChange}
+                            disabled={isUpdating}
+                            sx={{
+                                color: '#4FC3F7',
+                                '& .MuiSlider-thumb': { backgroundColor: '#4FC3F7' },
+                                '& .MuiSlider-rail': { color: '#424242', opacity: 1 },
+                                '& .MuiSlider-track': { color: '#4FC3F7' },
+                                '& .MuiSlider-markLabel': { color: '#888888' },
+                                '& .MuiSlider-mark': { backgroundColor: '#888888' }
+                            }}
+                        />
+                        <div style={{ marginTop: '10px', color: '#E0E0E0', textAlign: 'right' }}>
+                            {`${preInfusionTime.toFixed(1)} sec`}
+                        </div>
+                    </Grid>
+                    
+                    <Grid item xs={12}>
+                        <Typography gutterBottom sx={{ color: '#888888', textAlign: 'left', fontSize: '0.875rem' }}>
+                            Pre-Infusion Pressure (bar)
+                        </Typography>
+                        <Slider
+                            valueLabelDisplay="auto"
+                            value={preInfusionPressure}
+                            max={6}
+                            min={1}
+                            step={0.1}
+                            marks
+                            onChange={handlePreInfusionPressureChange}
+                            disabled={isUpdating}
+                            sx={{
+                                color: '#FFC107',
+                                '& .MuiSlider-thumb': { backgroundColor: '#FFC107' },
+                                '& .MuiSlider-rail': { color: '#424242', opacity: 1 },
+                                '& .MuiSlider-track': { color: '#FFC107' },
+                                '& .MuiSlider-markLabel': { color: '#888888' },
+                                '& .MuiSlider-mark': { backgroundColor: '#888888' }
+                            }}
+                        />
+                        <div style={{ marginTop: '10px', color: '#E0E0E0', textAlign: 'right' }}>
+                            {`${preInfusionPressure.toFixed(1)} bar`}
+                        </div>
+                    </Grid>
+                    
+                    <Grid item xs={12}>
+                        <Typography gutterBottom sx={{ color: '#888888', textAlign: 'left', fontSize: '0.875rem' }}>
+                            Shot Pressure (bar)
+                        </Typography>
+                        <Slider
+                            valueLabelDisplay="auto"
+                            value={shotPressure}
+                            max={12}
+                            min={4}
+                            step={0.1}
+                            marks
+                            onChange={handleShotPressureChange}
+                            disabled={isUpdating}
+                            sx={{
+                                color: '#E0E0E0',
+                                '& .MuiSlider-thumb': { backgroundColor: '#E0E0E0' },
+                                '& .MuiSlider-rail': { color: '#424242', opacity: 1 },
+                                '& .MuiSlider-track': { color: '#E0E0E0' },
+                                '& .MuiSlider-markLabel': { color: '#888888' },
+                                '& .MuiSlider-mark': { backgroundColor: '#888888' }
+                            }}
+                        />
+                        <div style={{ marginTop: '10px', color: '#E0E0E0', textAlign: 'right' }}>
+                            {`${shotPressure.toFixed(1)} bar`}
+                        </div>
+                    </Grid>
+                </Grid>
             )}
         </div>
     );

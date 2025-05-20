@@ -7,19 +7,31 @@
 #include <max6675.h>
 #include <WiFiUdp.h>
 #include <ArduinoOTA.h>
-#include <PSM.h>
+#include <Preferences.h>
 
 #include "aWOT.h"
 #include "config.h"
 #include "StaticFiles.h"
 
+// Preferences for storing persistent data
+Preferences preferences;
+
 unsigned long thermoTimer;
 unsigned long myTime;
 unsigned long shotTime;
 unsigned long wsTimer;
-unsigned long psmCounter;
-unsigned long shotGrams;
+// Flow tracking variables
+unsigned long pumpRunTime = 0;
+unsigned long pumpStartTime = 0;
+unsigned long shotGrams = 0;
+unsigned long flowCounter = 0;
+uint8_t currentPumpDuty = 0;
 bool shotStarted, scalesStarted;
+
+// Extraction parameters with defaults from config.h
+float currentPreInfusionTime = preInfusionTime;
+float currentPreInfusionPressure = preInfusionPressure;
+float currentShotPressure = shotPressure;
 
 volatile unsigned int value; //dimmer value
 
@@ -50,7 +62,116 @@ int WindowSize = 5000;
 // Init the thermocouples with the appropriate pins defined above with the prefix "thermo"
 MAX6675 thermocouple(thermoCLK, thermoCS, thermoDO);
 
-#include "ISR.h"
+// PWM functions for pump control
+void setupPWM() {
+  // Configure PWM for pump control
+  ledcSetup(PWM_CHANNEL, PWM_FREQUENCY, PWM_RESOLUTION);
+  ledcAttachPin(pumpPin, PWM_CHANNEL);
+  // Start with pump off
+  ledcWrite(PWM_CHANNEL, 0);
+}
+
+// Safely ramp the pump duty cycle to avoid sudden changes
+void setPumpDuty(uint8_t targetDuty) {
+  // Ensure we don't exceed maximum duty cycle
+  if (targetDuty > PWM_MAX_DUTY) {
+    targetDuty = PWM_MAX_DUTY;
+  }
+  
+  // Gradually ramp up/down to protect pump
+  int step = (targetDuty > currentPumpDuty) ? 1 : -1;
+  
+  while (currentPumpDuty != targetDuty) {
+    currentPumpDuty += step;
+    ledcWrite(PWM_CHANNEL, currentPumpDuty);
+    delay(PWM_RAMP_DELAY);
+  }
+  
+  // Update flow tracking when pump is running
+  if (currentPumpDuty > 0 && pumpStartTime == 0) {
+    pumpStartTime = millis();
+  } else if (currentPumpDuty == 0 && pumpStartTime > 0) {
+    pumpRunTime += (millis() - pumpStartTime);
+    pumpStartTime = 0;
+  }
+}
+
+// Calculate flow estimation based on pump duty and runtime
+void updateFlowCounter() {
+  if (currentPumpDuty > 0) {
+    unsigned long runTime = pumpRunTime;
+    if (pumpStartTime > 0) {
+      runTime += (millis() - pumpStartTime);
+    }
+    // Estimate flow based on duty cycle and run time
+    flowCounter = (runTime * currentPumpDuty * FLOW_ESTIMATION_FACTOR);
+  }
+}
+
+void resetFlowCounter() {
+  flowCounter = 0;
+  pumpRunTime = 0;
+  pumpStartTime = (currentPumpDuty > 0) ? millis() : 0;
+}
+
+// Timer ISR for PID calculation and heater control
+void IRAM_ATTR onTimer() {
+  // set interrupt time to 10ms
+  timerAlarmWrite(timer, 10000, true);
+  
+  // PID-based heater control
+  if (Output <= isrCounter) {
+    digitalWrite(relayPin, LOW);
+  } else {
+    digitalWrite(relayPin, HIGH);
+  }
+
+  isrCounter += 10; // += 10 because one tick = 10ms
+  
+  // Reset counter at the end of window
+  if (isrCounter >= windowSize) {
+    isrCounter = 0;
+  }
+
+  // Run PID calculation
+  myPID.Compute();
+}
+
+// Initialize timer for PID control
+void initTimer() {
+  timer = timerBegin(0, 80, true);             // 80MHz clock divider
+  timerAttachInterrupt(timer, &onTimer, true); // Attach interrupt handler
+  timerAlarmWrite(timer, 10000, true);         // 10ms interrupt
+}
+
+// Enable timer for PID control
+void enableTimer() {
+  timerAlarmEnable(timer);
+}
+
+// Load configuration from preferences
+void loadConfig() {
+  currentPreInfusionTime = preferences.getFloat("preInfTime", preInfusionTime);
+  currentPreInfusionPressure = preferences.getFloat("preInfPress", preInfusionPressure);
+  currentShotPressure = preferences.getFloat("shotPress", shotPressure);
+  
+  Serial.println("Loaded configuration:");
+  Serial.print("Pre-infusion time: ");
+  Serial.println(currentPreInfusionTime);
+  Serial.print("Pre-infusion pressure: ");
+  Serial.println(currentPreInfusionPressure);
+  Serial.print("Shot pressure: ");
+  Serial.println(currentShotPressure);
+}
+
+// Save configuration to preferences
+void saveConfig() {
+  preferences.putFloat("preInfTime", currentPreInfusionTime);
+  preferences.putFloat("preInfPress", currentPreInfusionPressure);
+  preferences.putFloat("shotPress", currentShotPressure);
+  
+  Serial.println("Saved configuration");
+}
 
 //##############################################################################################################################
 //###########################################___________BREWDETECTION________________###########################################
@@ -77,15 +198,30 @@ void brewDetection(bool isBrewingActivated)
 //##############################################################################################################################
 void setup()
 {
-  // relay port init and set initial operating mode
-  Setpoint = espressoSetPoint;
+  // Initialize preferences for persistent storage
+  preferences.begin("gaggia", false);  // "gaggia" is the namespace
+  
+  // Load setpoint and extraction parameters from preferences
+  manualSetpoint = preferences.getDouble("setpoint", espressoSetPoint);
+  Setpoint = manualSetpoint;
+  loadConfig();
+  
   pinMode(relayPin, OUTPUT);
-  pinMode(pumpPin, OUTPUT);
+  // pumpPin is now controlled by PWM
   pinMode(solenoidPin, OUTPUT);
   pinMode(optoPin, INPUT);
   pinMode(steamPin, INPUT_PULLUP);  
-  digitalWrite(pumpPin, HIGH);
+  // Initialize pump using PWM control
+  setupPWM();
   digitalWrite(solenoidPin, LOW);
+  
+  // Initialize the steam switch state to avoid overriding setpoint on first read
+  lastSteamSwitch = digitalRead(steamPin);
+  
+  // If currently in steam mode, use steam setpoint regardless of saved preference
+  if (lastSteamSwitch == 0) {
+    Setpoint = steamSetPoint;
+  }
 
   Serial.begin(115200);
   WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
@@ -141,15 +277,75 @@ void setup()
           
           // Only update if steam switch is not active
           if (digitalRead(steamPin) != 0) {
+              // Store the manual setpoint preference
               manualSetpoint = newSetpoint;
               Setpoint = newSetpoint;
-              Serial.print("Setpoint updated to: ");
-              Serial.println(Setpoint);
+              // Store setpoint in preferences
+              preferences.putDouble("setpoint", newSetpoint);
+              Serial.print("Manual setpoint updated and saved to: ");
+              Serial.println(newSetpoint);
           } else {
               Serial.println("Cannot change setpoint while in steam mode");
           }
           request->send(200);
       }
+  });
+
+  // Endpoint to handle configuration updates
+  asyncServer.on("/config", HTTP_POST, [](AsyncWebServerRequest *request) {
+      bool configChanged = false;
+      
+      if (request->hasParam("preInfusionTime", true)) {
+          AsyncWebParameter *p = request->getParam("preInfusionTime", true);
+          float newValue = p->value().toFloat();
+          if (newValue >= 0 && newValue <= 15) {
+              currentPreInfusionTime = newValue;
+              configChanged = true;
+              Serial.print("Updated pre-infusion time: ");
+              Serial.println(currentPreInfusionTime);
+          }
+      }
+      
+      if (request->hasParam("preInfusionPressure", true)) {
+          AsyncWebParameter *p = request->getParam("preInfusionPressure", true);
+          float newValue = p->value().toFloat();
+          if (newValue >= 1 && newValue <= 6) {
+              currentPreInfusionPressure = newValue;
+              configChanged = true;
+              Serial.print("Updated pre-infusion pressure: ");
+              Serial.println(currentPreInfusionPressure);
+          }
+      }
+      
+      if (request->hasParam("shotPressure", true)) {
+          AsyncWebParameter *p = request->getParam("shotPressure", true);
+          float newValue = p->value().toFloat();
+          if (newValue >= 4 && newValue <= 12) {
+              currentShotPressure = newValue;
+              configChanged = true;
+              Serial.print("Updated shot pressure: ");
+              Serial.println(currentShotPressure);
+          }
+      }
+      
+      if (configChanged) {
+          saveConfig();
+      }
+      
+      request->send(200);
+  });
+
+  // Endpoint to get current configuration
+  asyncServer.on("/getConfig", HTTP_GET, [](AsyncWebServerRequest *request) {
+      StaticJsonDocument<200> doc;
+      doc["preInfusionTime"] = currentPreInfusionTime;
+      doc["preInfusionPressure"] = currentPreInfusionPressure;
+      doc["shotPressure"] = currentShotPressure;
+      
+      String response;
+      serializeJson(doc, response);
+      
+      request->send(200, "application/json", response);
   });
 
   asyncServer.onNotFound([](AsyncWebServerRequest *request) {
@@ -182,8 +378,9 @@ void setup()
   // turn the PID on
   myPID.SetMode(AUTOMATIC);
 
-  initTimer1();
-  enableTimer1();
+  // Initialize and enable timer for PID control
+  initTimer();
+  enableTimer();
 }
 
 //##############################################################################################################################
@@ -243,11 +440,11 @@ void readSteam()
     // Only change setpoint if steam switch state has changed
     if (currentSteamSwitch != lastSteamSwitch) {
         if (currentSteamSwitch == 0) {
-            manualSetpoint = steamSetPoint;
+            // Entering steam mode - use steam setpoint
             Setpoint = steamSetPoint;
         } else {
-            manualSetpoint = espressoSetPoint;
-            Setpoint = espressoSetPoint;
+            // Exiting steam mode - return to manual setpoint
+            Setpoint = manualSetpoint;
         }
         lastSteamSwitch = currentSteamSwitch;
     }
@@ -285,10 +482,25 @@ void pressureReading()
 void setPressure(int wantedValue)
 {
   pressureReading();
-  value=wantedValue;
-  value = 127 - (int)pressure_bar * 12;  
-  if (pressure_bar > (float)wantedValue) value = 0;  
-  pump.set(value);  
+  
+  // Calculate duty cycle based on pressure difference
+  int pressureDiff = wantedValue - pressure_bar;
+  uint8_t targetDuty = 0;
+  
+  if (pressureDiff > 0) {
+    // Map pressure difference to duty cycle (0-200)
+    // Scale factor 25 can be adjusted for better control
+    targetDuty = constrain(pressureDiff * 25, 0, PWM_MAX_DUTY);
+  }
+  
+  Serial.print("Pressure: ");
+  Serial.print(pressure_bar);
+  Serial.print(" bar, Target: ");
+  Serial.print(wantedValue);
+  Serial.print(" bar, Setting pump duty to: ");
+  Serial.println(targetDuty);
+  
+  setPumpDuty(targetDuty);
 }
 
 
@@ -297,7 +509,8 @@ void setPressure(int wantedValue)
 //##############################################################################################################################
 void readings() {
     // Reading the temperature every 350ms between the loops
-  shotGrams = psmCounter*psmToGrams;
+  updateFlowCounter();
+  shotGrams = flowCounter;
   readOpto();
   readSteam(); 
   if ((millis() - thermoTimer) > GET_KTYPE_READ_EVERY) {
@@ -315,21 +528,24 @@ void readings() {
 //##############################################################################################################################
 void shotMonitor() {
   if(!brewSwitch){
-    psmCounter = pump.getCounter();
+    updateFlowCounter();
     if(!shotStarted){
       shotTime = millis();      
-      psmCounter = 0;
+      resetFlowCounter();
+      Serial.println("Shot started, resetting flow counter");
       shotStarted = true;
     }   
-    if((millis() - shotTime)  < preInfusionTime*1000){
-      setPressure(preInfusionPressure);
-      pump.resetCounter();      
+    if((millis() - shotTime) < currentPreInfusionTime*1000){
+      setPressure(currentPreInfusionPressure);
+      resetFlowCounter();
+      Serial.println("Pre-infusion phase, flow counter reset");      
     }            
     else{
-      setPressure(shotPressure);      
-      if(pressure_bar < shotPressure - 2){
+      setPressure(currentShotPressure);      
+      if(pressure_bar < currentShotPressure - 2){
         if(!scalesStarted){
-          pump.resetCounter();            
+          resetFlowCounter();
+          Serial.println("Scales not started, flow counter reset");            
         }
       }
       else{
@@ -338,6 +554,8 @@ void shotMonitor() {
     }           
   }
   else{
+    // Stop pump when brew switch off
+    setPumpDuty(0);
     shotStarted = false;
     scalesStarted = false;
   }
@@ -352,14 +570,22 @@ void wsSendData()
   if (globalClient != NULL && globalClient->status() == WS_CONNECTED && (millis() - wsTimer) > GET_KTYPE_READ_EVERY)
   {
     StaticJsonDocument<200> payload;  // Increased size to accommodate new field
+    
+    updateFlowCounter();
+    Serial.print("Flow counter: ");
+    Serial.println(flowCounter);
 
     payload["temp"] = temperature;        //temperature
     payload["brewTemp"] = temperature;    //temperature
     payload["pressure"] = pressure_bar;   //pressure_bar
     payload["setpoint"] = Setpoint;       //current setpoint
     payload["brewSwitch"] = brewSwitch;   //brew switch status
-    payload["shotGrams"] = shotGrams;     //PSM calculated weight
-    payload["zerocross"] = pump.getCounter(); //PSM zerocross data
+    payload["shotGrams"] = shotGrams;     //Flow calculated weight
+    payload["pumpDuty"] = currentPumpDuty; //Current pump duty cycle
+    
+    // Add pre-infusion status
+    bool isPreInfusing = !brewSwitch && shotStarted && ((millis() - shotTime) < currentPreInfusionTime*1000);
+    payload["preInfusing"] = isPreInfusing;
 
     myTime = millis() / 1000;
     payload["brewTime"] = myTime;
