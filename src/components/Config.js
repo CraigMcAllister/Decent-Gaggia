@@ -11,6 +11,8 @@ const Config = (props) => {
     const [preInfusionTime, setPreInfusionTime] = useState(8);
     const [preInfusionPressure, setPreInfusionPressure] = useState(3);
     const [shotPressure, setShotPressure] = useState(8);
+    const [shotDuration, setShotDuration] = useState(30);
+    const [shotEndPressure, setShotEndPressure] = useState(4);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState(null);
     const [isUpdating, setIsUpdating] = useState(false);
@@ -22,6 +24,8 @@ const Config = (props) => {
         const storedPreInfusionTime = localStorage.getItem('preInfusionTime');
         const storedPreInfusionPressure = localStorage.getItem('preInfusionPressure');
         const storedShotPressure = localStorage.getItem('shotPressure');
+        const storedShotDuration = localStorage.getItem('shotDuration');
+        const storedShotEndPressure = localStorage.getItem('shotEndPressure');
         
         if (storedSetpoint !== null) {
             setSetPointVal(parseFloat(storedSetpoint));
@@ -39,6 +43,14 @@ const Config = (props) => {
         
         if (storedShotPressure !== null) {
             setShotPressure(parseFloat(storedShotPressure));
+        }
+        
+        if (storedShotDuration !== null) {
+            setShotDuration(parseFloat(storedShotDuration));
+        }
+        
+        if (storedShotEndPressure !== null) {
+            setShotEndPressure(parseFloat(storedShotEndPressure));
         }
         
         // Initialize config from server when first loading
@@ -70,6 +82,8 @@ const Config = (props) => {
                 if (config.preInfusionPressure) setPreInfusionPressure(config.preInfusionPressure);
                 if (config.shotPressure) setShotPressure(config.shotPressure);
                 console.log('Config loaded from server:', config);
+                if (config.shotDuration) setShotDuration(config.shotDuration);
+                if (config.shotEndPressure) setShotEndPressure(config.shotEndPressure);
             }
         } catch (err) {
             console.error('Failed to fetch config from server:', err);
@@ -149,6 +163,18 @@ const Config = (props) => {
         setShotPressure(newValue);
         setError(null);
         debouncedSubmit(newValue, 'shotPressure');
+    };
+
+    const handleShotDurationChange = (event, newValue) => {
+        setShotDuration(newValue);
+        setError(null);
+        debouncedSubmit(newValue, 'shotDuration');
+    };
+
+    const handleShotEndPressureChange = (event, newValue) => {
+        setShotEndPressure(newValue);
+        setError(null);
+        debouncedSubmit(newValue, 'shotEndPressure');
     };
 
     return (
@@ -301,6 +327,60 @@ const Config = (props) => {
                         />
                         <div style={{ marginTop: '10px', color: '#E0E0E0', textAlign: 'right' }}>
                             {`${shotPressure.toFixed(1)} bar`}
+                        </div>
+                    </Grid>
+
+                    <Grid item xs={12}>
+                        <Typography gutterBottom sx={{ color: '#888888', textAlign: 'left', fontSize: '0.875rem' }}>
+                            Total Shot Time (seconds)
+                        </Typography>
+                        <Slider
+                            valueLabelDisplay="auto"
+                            value={shotDuration}
+                            max={60}
+                            min={10}
+                            step={1}
+                            marks
+                            onChange={handleShotDurationChange}
+                            disabled={isUpdating}
+                            sx={{
+                                color: '#4DB6AC',
+                                '& .MuiSlider-thumb': { backgroundColor: '#4DB6AC' },
+                                '& .MuiSlider-rail': { color: '#424242', opacity: 1 },
+                                '& .MuiSlider-track': { color: '#4DB6AC' },
+                                '& .MuiSlider-markLabel': { color: '#888888' },
+                                '& .MuiSlider-mark': { backgroundColor: '#888888' }
+                            }}
+                        />
+                        <div style={{ marginTop: '10px', color: '#E0E0E0', textAlign: 'right' }}>
+                            {`${shotDuration.toFixed(0)} sec`}
+                        </div>
+                    </Grid>
+
+                    <Grid item xs={12}>
+                        <Typography gutterBottom sx={{ color: '#888888', textAlign: 'left', fontSize: '0.875rem' }}>
+                            Shot End Pressure (bar)
+                        </Typography>
+                        <Slider
+                            valueLabelDisplay="auto"
+                            value={shotEndPressure}
+                            max={shotPressure}
+                            min={1}
+                            step={0.1}
+                            marks
+                            onChange={handleShotEndPressureChange}
+                            disabled={isUpdating}
+                            sx={{
+                                color: '#AED581',
+                                '& .MuiSlider-thumb': { backgroundColor: '#AED581' },
+                                '& .MuiSlider-rail': { color: '#424242', opacity: 1 },
+                                '& .MuiSlider-track': { color: '#AED581' },
+                                '& .MuiSlider-markLabel': { color: '#888888' },
+                                '& .MuiSlider-mark': { backgroundColor: '#888888' }
+                            }}
+                        />
+                        <div style={{ marginTop: '10px', color: '#E0E0E0', textAlign: 'right' }}>
+                            {`${shotEndPressure.toFixed(1)} bar`}
                         </div>
                     </Grid>
                 </Grid>

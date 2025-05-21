@@ -32,6 +32,8 @@ bool shotStarted, scalesStarted;
 float currentPreInfusionTime = preInfusionTime;
 float currentPreInfusionPressure = preInfusionPressure;
 float currentShotPressure = shotPressure;
+float currentShotDuration = SHOT_DURATION_S;
+float currentShotEndPressure = SHOT_END_PRESSURE_BAR;
 
 volatile unsigned int value; //dimmer value
 
@@ -112,14 +114,36 @@ void updateFlowCounter() {
   if (pumpStartTime > 0) {
     runTime += (millis() - pumpStartTime);
   }
-  // Estimate flow based on run time
-  flowCounter = (runTime * FLOW_ESTIMATION_FACTOR);
+
+  // Only start accumulating flow after the initial delay
+  if (runTime > PUMP_ON_DELAY_MS) {
+    // Calculate effective runtime for flow accumulation
+    unsigned long effectiveRunTime = runTime - PUMP_ON_DELAY_MS;
+    // Estimate flow based on effective run time
+    // FLOW_ESTIMATION_FACTOR converts milliseconds of pump runtime to milligrams of water
+    flowCounter = (effectiveRunTime * FLOW_ESTIMATION_FACTOR);
+  } else {
+    // If pump hasn't run long enough for the delay, flow is zero
+    flowCounter = 0;
+  }
+  
+  // Debug output every second
+  static unsigned long lastDebugTime = 0;
+  if (millis() - lastDebugTime > 1000) {
+    Serial.print("Flow estimation: Pump runtime=");
+    Serial.print(runTime);
+    Serial.print("ms, Estimated weight=");
+    Serial.print(flowCounter);
+    Serial.println("mg");
+    lastDebugTime = millis();
+  }
 }
 
 void resetFlowCounter() {
   flowCounter = 0;
   pumpRunTime = 0;
   pumpStartTime = (pumpState) ? millis() : 0;
+  Serial.println("Flow counter and pump time reset");
 }
 
 // Timer ISR for PID calculation and heater control
@@ -162,6 +186,8 @@ void loadConfig() {
   currentPreInfusionTime = preferences.getFloat("preInfTime", preInfusionTime);
   currentPreInfusionPressure = preferences.getFloat("preInfPress", preInfusionPressure);
   currentShotPressure = preferences.getFloat("shotPress", shotPressure);
+  currentShotDuration = preferences.getFloat("shotDur", SHOT_DURATION_S);
+  currentShotEndPressure = preferences.getFloat("shotEndPress", SHOT_END_PRESSURE_BAR);
   
   Serial.println("Loaded configuration:");
   Serial.print("Pre-infusion time: ");
@@ -170,6 +196,10 @@ void loadConfig() {
   Serial.println(currentPreInfusionPressure);
   Serial.print("Shot pressure: ");
   Serial.println(currentShotPressure);
+  Serial.print("Shot duration: ");
+  Serial.println(currentShotDuration);
+  Serial.print("Shot end pressure: ");
+  Serial.println(currentShotEndPressure);
 }
 
 // Save configuration to preferences
@@ -177,6 +207,8 @@ void saveConfig() {
   preferences.putFloat("preInfTime", currentPreInfusionTime);
   preferences.putFloat("preInfPress", currentPreInfusionPressure);
   preferences.putFloat("shotPress", currentShotPressure);
+  preferences.putFloat("shotDur", currentShotDuration);
+  preferences.putFloat("shotEndPress", currentShotEndPressure);
   
   Serial.println("Saved configuration");
 }
@@ -335,6 +367,28 @@ void setup()
               Serial.println(currentShotPressure);
           }
       }
+
+      if (request->hasParam("shotDuration", true)) {
+          AsyncWebParameter *p = request->getParam("shotDuration", true);
+          float newValue = p->value().toFloat();
+          if (newValue >= 10 && newValue <= 60) {
+              currentShotDuration = newValue;
+              configChanged = true;
+              Serial.print("Updated shot duration: ");
+              Serial.println(currentShotDuration);
+          }
+      }
+
+      if (request->hasParam("shotEndPressure", true)) {
+          AsyncWebParameter *p = request->getParam("shotEndPressure", true);
+          float newValue = p->value().toFloat();
+          if (newValue >= 1 && newValue <= currentShotPressure) {
+              currentShotEndPressure = newValue;
+              configChanged = true;
+              Serial.print("Updated shot end pressure: ");
+              Serial.println(currentShotEndPressure);
+          }
+      }
       
       if (configChanged) {
           saveConfig();
@@ -349,6 +403,8 @@ void setup()
       doc["preInfusionTime"] = currentPreInfusionTime;
       doc["preInfusionPressure"] = currentPreInfusionPressure;
       doc["shotPressure"] = currentShotPressure;
+      doc["shotDuration"] = currentShotDuration;
+      doc["shotEndPressure"] = currentShotEndPressure;
       
       String response;
       serializeJson(doc, response);
@@ -488,7 +544,7 @@ void pressureReading()
 }
 
 // Replace the existing setPressure with binary pressure control
-void setPressure(int wantedValue) {
+void setPressure(float wantedValue) {
   pressureReading();
   
   // Simple binary control with hysteresis
@@ -518,6 +574,8 @@ void readings() {
     // Reading the temperature every 350ms between the loops
   updateFlowCounter();
   shotGrams = flowCounter;
+  Serial.print("Shot grams: ");
+  Serial.println(shotGrams);
   readOpto();
   readSteam(); 
   if ((millis() - thermoTimer) > GET_KTYPE_READ_EVERY) {
@@ -534,38 +592,86 @@ void readings() {
 //###########################################___________SHOT MONITOR____________################################################
 //##############################################################################################################################
 void shotMonitor() {
-  if(!brewSwitch){
+  // Current state of brewing
+  static bool prevBrewSwitch = true;  // Initialize to true (not brewing) to detect first shot
+  unsigned long currentTimeInShot = 0;
+
+  if(!brewSwitch){  // Brew switch active (brewing)
     updateFlowCounter();
-    if(!shotStarted){
+    
+    // Detect start of a new shot (brew switch transition from off to on)
+    if(prevBrewSwitch == true && !shotStarted){
       shotTime = millis();      
+      // Reset flow counter and pump run time at start of new shot
       resetFlowCounter();
-      Serial.println("Shot started, resetting flow counter");
+      // Explicitly reset pumpRunTime at the start of a new shot
+      pumpRunTime = 0;
+      Serial.println("Shot started, resetting flow counter and pump time");
       shotStarted = true;
     }   
-    if((millis() - shotTime) < currentPreInfusionTime*1000){
-      setPressure(currentPreInfusionPressure);
-      resetFlowCounter();
-      Serial.println("Pre-infusion phase, flow counter reset");      
-    }            
-    else{
-      setPressure(currentShotPressure);      
-      if(pressure_bar < currentShotPressure - 2){
-        if(!scalesStarted){
-          resetFlowCounter();
-          Serial.println("Scales not started, flow counter reset");            
+
+    currentTimeInShot = millis() - shotTime;
+    
+    // Check if total shot duration has been reached
+    if (shotStarted && (currentTimeInShot >= (currentShotDuration * 1000))) {
+        Serial.println("Shot duration reached. Stopping shot.");
+        setPumpState(false); // Stop the pump
+        // Consider resetting brewSwitch or other states if needed, but for now, just stop pump.
+        // The user will have to toggle the physical brew switch to reset for a new shot.
+        // prevBrewSwitch will be updated to brewSwitch (which should be true after user toggles it)
+        // and shotStarted will be false on next loop if brewSwitch is true.
+    } else if (shotStarted) { // Only control pressure if shot is active and not yet finished
+        if(currentTimeInShot < currentPreInfusionTime*1000){
+          setPressure(currentPreInfusionPressure);
+          // We don't reset flow counter during pre-infusion anymore to track total shot weight
+          // This allows the shot weight to accumulate throughout the entire shot
+        }            
+        else{
+          // Calculate pressure ramp
+          unsigned long timeAfterPreInfusion = currentTimeInShot - (currentPreInfusionTime * 1000);
+          unsigned long rampDuration = (currentShotDuration * 1000) - (currentPreInfusionTime * 1000);
+          
+          float targetPressure;
+          if (rampDuration <= 0) { // Avoid division by zero if shot duration is <= pre-infusion time
+              targetPressure = currentShotPressure; // Or could be currentShotEndPressure, depends on desired behavior
+          } else {
+              // Linearly interpolate pressure from currentShotPressure down to currentShotEndPressure
+              float pressureDifference = currentShotPressure - currentShotEndPressure;
+              float rampProgress = (float)timeAfterPreInfusion / (float)rampDuration;
+              
+              if (rampProgress > 1.0) rampProgress = 1.0; // Cap progress at 100%
+
+              targetPressure = currentShotPressure - (pressureDifference * rampProgress);
+              
+              // Ensure target pressure doesn't go below the defined end pressure or above start pressure
+              if (targetPressure < currentShotEndPressure) targetPressure = currentShotEndPressure;
+              if (targetPressure > currentShotPressure) targetPressure = currentShotPressure; // Should not happen if logic is correct
+          }
+          
+          setPressure(targetPressure);      
+          
+          if(pressure_bar < targetPressure - 2){ // Using targetPressure for this logic now
+            if(!scalesStarted){
+              // Don't reset flow counter here either
+              Serial.println("Scales started");            
+            }
+          }
+          else{
+            scalesStarted = true;         
+          }
         }
-      }
-      else{
-        scalesStarted = true;         
-      }
     }           
   }
-  else{
+  else{  // Brew switch inactive (not brewing)
     // Stop pump when brew switch off
     setPumpState(false);
     shotStarted = false;
     scalesStarted = false;
+    // Don't reset flow counter here so weight is still displayed after shot
   }
+  
+  // Store current brew switch state for next comparison
+  prevBrewSwitch = brewSwitch;
 }
 
 
@@ -576,7 +682,7 @@ void wsSendData()
 {
   if (globalClient != NULL && globalClient->status() == WS_CONNECTED && (millis() - wsTimer) > GET_KTYPE_READ_EVERY)
   {
-    StaticJsonDocument<200> payload;  // Increased size to accommodate new field
+    StaticJsonDocument<256> payload;  // Increased size to accommodate all fields
     
     updateFlowCounter();
     Serial.print("Flow counter: ");
@@ -587,8 +693,20 @@ void wsSendData()
     payload["pressure"] = pressure_bar;   //pressure_bar
     payload["setpoint"] = Setpoint;       //current setpoint
     payload["brewSwitch"] = brewSwitch;   //brew switch status
-    payload["shotGrams"] = shotGrams;     //Flow calculated weight
+    payload["shotGrams"] = shotGrams;     //Flow calculated weight in mg
     payload["pumpDuty"] = pumpState ? 100 : 0; // Report 100% or 0% duty
+    
+    // Calculate total pump on time in seconds (including current on time if pump is running)
+    unsigned long totalPumpTime = pumpRunTime;
+    if (pumpStartTime > 0) {
+      totalPumpTime += (millis() - pumpStartTime);
+    }
+    float pumpOnTimeSeconds = totalPumpTime / 1000.0;
+    payload["pumpOnTime"] = pumpOnTimeSeconds; // Convert to seconds
+    
+    Serial.print("Pump on time: ");
+    Serial.print(pumpOnTimeSeconds);
+    Serial.println(" seconds");
     
     // Add pre-infusion status
     bool isPreInfusing = !brewSwitch && shotStarted && ((millis() - shotTime) < currentPreInfusionTime*1000);
@@ -597,7 +715,7 @@ void wsSendData()
     myTime = millis() / 1000;
     payload["brewTime"] = myTime;
 
-    char buffer[200];
+    char buffer[256];
     serializeJson(payload, buffer);
 
     globalClient->text(buffer);

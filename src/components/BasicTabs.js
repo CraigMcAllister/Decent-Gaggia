@@ -50,7 +50,10 @@ export default function BasicTabs() {
     const [brewTempHistory, setBrewTempHistory] = useState([]);
     const [brewTimeHistory, setBrewTimeHistory] = useState([]);
     const [pumpDutyHistory, setPumpDutyHistory] = useState([]);
+    const [shotGramsHistory, setShotGramsHistory] = useState(() => ([])); // Initial empty array
     const [currentPumpDuty, setCurrentPumpDuty] = useState(0);
+    const [currentShotGrams, setCurrentShotGrams] = useState(0);
+    const [currentPumpOnTime, setCurrentPumpOnTime] = useState(0);
     const [isEspressoWsConnected, setIsEspressoWsConnected] = useState(false);
     const [brewSwitch, setBrewSwitch] = useState(true);
     const [isPreInfusing, setIsPreInfusing] = useState(false);
@@ -112,19 +115,26 @@ export default function BasicTabs() {
                     setCurrentPumpDuty(message.pumpDuty);
                 }
                 
+                // Update shot grams if available
+                if (message.shotGrams !== undefined) {
+                    setCurrentShotGrams(message.shotGrams);
+                }
+                
+                // Update pump on time if available
+                if (message.pumpOnTime !== undefined) {
+                    setCurrentPumpOnTime(message.pumpOnTime);
+                }
+                
                 const newTime = getTimeString();
 
                 if (message.brewTemp !== undefined && message.pressure !== undefined) {
+                     // Use a consistent approach to update all data series
+                     // This ensures all arrays stay the same length
+                     setBrewTimeHistory(prev => [...prev, newTime]);
                      setBrewTempHistory(prev => [...prev, message.brewTemp]);
                      setPressureHistory(prev => [...prev, message.pressure]);
-                     setBrewTimeHistory(prev => [...prev, newTime]);
-                     
-                     // Add pump duty data if available
-                     if (message.pumpDuty !== undefined) {
-                         setPumpDutyHistory(prev => [...prev, message.pumpDuty]);
-                     } else {
-                         setPumpDutyHistory(prev => [...prev, 0]);
-                     }
+                     setPumpDutyHistory(prev => [...prev, message.pumpDuty !== undefined ? message.pumpDuty : 0]);
+                     setShotGramsHistory(prev => [...prev, message.shotGrams !== undefined ? message.shotGrams : 0]);
                 }
             } catch (error) {
                 console.error('Error parsing Espresso WebSocket message:', error);
@@ -165,6 +175,7 @@ export default function BasicTabs() {
         setPressureHistory([]);
         setBrewTimeHistory([]);
         setPumpDutyHistory([]);
+        setShotGramsHistory([]);
     }, []);
 
     useEffect(() => {
@@ -190,6 +201,9 @@ export default function BasicTabs() {
                 if (storedState.brewTempHistory) setBrewTempHistory(storedState.brewTempHistory);
                 if (storedState.brewTimeHistory) setBrewTimeHistory(storedState.brewTimeHistory);
                 if (storedState.pumpDutyHistory) setPumpDutyHistory(storedState.pumpDutyHistory);
+                if (storedState.shotGramsHistory) setShotGramsHistory(storedState.shotGramsHistory);
+                if (storedState.currentShotGrams !== undefined) setCurrentShotGrams(storedState.currentShotGrams);
+                if (storedState.currentPumpOnTime !== undefined) setCurrentPumpOnTime(storedState.currentPumpOnTime);
                 if (storedState.isPreInfusing !== undefined) setIsPreInfusing(storedState.isPreInfusing);
             }
         } catch (e) {
@@ -206,18 +220,30 @@ export default function BasicTabs() {
                 brewTempHistory,
                 brewTimeHistory,
                 pumpDutyHistory,
+                shotGramsHistory,
+                currentShotGrams,
+                currentPumpOnTime,
                 isPreInfusing
             };
             sessionStorage.setItem('espressoAppState', JSON.stringify(stateToSave));
         } catch (e) {
             console.error("Failed to save state to sessionStorage", e);
         }
-    }, [temp, setPointFromEspresso, pressureHistory, brewTempHistory, brewTimeHistory, pumpDutyHistory, isPreInfusing]);
+    }, [temp, setPointFromEspresso, pressureHistory, brewTempHistory, brewTimeHistory, pumpDutyHistory, shotGramsHistory, currentShotGrams, currentPumpOnTime, isPreInfusing]);
 
     const handleChange = (event, newValue) => {
         setValue(newValue);
     };
 
+    // Debug log the current state of histories
+    console.log('Chart data lengths:', {
+        brewTimeHistory: brewTimeHistory.length,
+        brewTempHistory: brewTempHistory.length,
+        pressureHistory: pressureHistory.length,
+        pumpDutyHistory: pumpDutyHistory.length,
+        shotGramsHistory: shotGramsHistory.length
+    });
+    
     const chartDataObject = {
         labels: brewTimeHistory,
         datasets: [
@@ -244,6 +270,17 @@ export default function BasicTabs() {
                 data: pumpDutyHistory,
                 backgroundColor: "rgba(255, 193, 7, 0.1)",
                 borderColor: "#FFC107",
+                yAxisID: 'pumpDuty',
+                fill: false,
+                borderWidth: 1.5,
+                hidden: true,
+            },
+            {
+                label: "Shot Weight",
+                data: shotGramsHistory,
+                backgroundColor: "rgba(156, 39, 176, 0.1)",
+                borderColor: "#9C27B0",
+                // Use an existing yAxisID that's already defined in chart options
                 yAxisID: 'pumpDuty',
                 fill: false,
                 borderWidth: 1.5,
@@ -286,6 +323,8 @@ export default function BasicTabs() {
                     clearChartData={clearChartDataInBasicTabs}
                     brewSwitch={brewSwitch}
                     pumpDuty={currentPumpDuty}
+                    shotGrams={currentShotGrams}
+                    pumpOnTime={currentPumpOnTime}
                     isPreInfusing={isPreInfusing}
                 />
             </TabPanel>

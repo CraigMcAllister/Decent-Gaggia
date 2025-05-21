@@ -11,7 +11,8 @@
 
 #define pumpPin 12  // Pump control pin
 // Pump control configuration
-#define FLOW_ESTIMATION_FACTOR 0.0645  // Updated estimation factor for binary pump control
+#define PUMP_ON_DELAY_MS 2200 // Delay in milliseconds before flow accumulation starts
+#define FLOW_ESTIMATION_FACTOR 5.180555  // Updated estimation factor: 37.3g in 7.2s after delay
 
 // Set point for different beans:
 // 94C - Cama Decaf
@@ -23,6 +24,9 @@
 #define preInfusionTime 8
 #define preInfusionPressure 3
 #define shotPressure 8
+
+#define SHOT_DURATION_S 30  // Default total shot duration in seconds
+#define SHOT_END_PRESSURE_BAR 4 // Default shot ending pressure in bar
 
 #define pressurePin 35
 

@@ -14,6 +14,8 @@ interface IProps {
     brewSwitch?: boolean;
     pumpDuty?: number;
     isPreInfusing?: boolean;
+    pumpOnTime?: number;
+    shotGrams?: number;
 }
 
 interface IState {
@@ -140,15 +142,27 @@ class Espresso extends React.Component<IProps, IState> {
     toggleAdvancedMode = () => {
         this.setState(prevState => ({ advancedMode: !prevState.advancedMode }), () => {
             if (this.myRef.current && this.myRef.current.chartInstance) {
-                // Show/hide pumpDuty dataset based on advanced mode toggle
+                // Show/hide advanced datasets based on advanced mode toggle
                 const chartInstance = this.myRef.current.chartInstance;
-                const pumpDutyDataset = chartInstance.data.datasets.find((ds: any) => ds.label === "Pump Duty");
                 
+                // Toggle pump duty dataset
+                const pumpDutyDataset = chartInstance.data.datasets.find((ds: any) => ds.label === "Pump Duty");
                 if (pumpDutyDataset) {
                     pumpDutyDataset.hidden = !this.state.advancedMode;
                 }
                 
-                chartInstance.update();
+                // Toggle shot weight dataset (if it exists)
+                const shotWeightDataset = chartInstance.data.datasets.find((ds: any) => ds.label === "Shot Weight");
+                if (shotWeightDataset) {
+                    shotWeightDataset.hidden = !this.state.advancedMode;
+                }
+                
+                // Update chart after a short delay to ensure all changes are applied
+                setTimeout(() => {
+                    if (this.myRef.current && this.myRef.current.chartInstance) {
+                        this.myRef.current.chartInstance.update();
+                    }
+                }, 0);
             }
         });
     }
@@ -158,7 +172,7 @@ class Espresso extends React.Component<IProps, IState> {
     }
 
     render() {
-        const { temp, setPoint, latestPressure, chartData, brewSwitch, pumpDuty, isPreInfusing } = this.props;
+        const { temp, setPoint, latestPressure, chartData, brewSwitch, pumpDuty, isPreInfusing, pumpOnTime, shotGrams } = this.props;
         const isBrewing = brewSwitch === false; // brewSwitch is false when brewing
 
         // Determine status label and color
@@ -180,6 +194,9 @@ class Espresso extends React.Component<IProps, IState> {
         currentChartOptions.scales.yAxes[0].display = this.state.advancedMode;
         currentChartOptions.scales.yAxes[1].display = this.state.advancedMode;
         currentChartOptions.scales.yAxes[2].display = this.state.advancedMode;
+        
+        // For advanced mode, make sure the chart options also reflect it
+        // We're using the pumpDuty axis for shot weight too, so we don't need a separate axis
 
         return (
             <div className="container">
@@ -248,11 +265,23 @@ class Espresso extends React.Component<IProps, IState> {
                                     {`${latestPressure.toFixed(2)} bar`}
                                 </span>
                             </div>
+                            {this.state.advancedMode && this.props.pumpOnTime !== undefined && (
+                                <div className="control-item">
+                                    <span className="control-label">Pump On Time</span>
+                                    <span className="control-value">{this.props.pumpOnTime.toFixed(2)}s</span>
+                                </div>
+                            )}
                             <div className="control-item">
                                 <span className="control-label">Setpoint</span>
                                 <span className="control-value">{setPoint.toFixed(2)}°C</span>
                             </div>
-                            {pumpDuty !== undefined && (
+                            {this.props.shotGrams !== undefined && (
+                                <div className="control-item">
+                                    <span className="control-label">Shot Weight</span>
+                                    <span className="control-value">{(this.props.shotGrams / 1000).toFixed(1)}g</span>
+                                </div>
+                            )}
+                            {this.state.advancedMode && pumpDuty !== undefined && (
                                 <div className="control-item">
                                     <span className="control-label">Pump Duty</span>
                                     <span className="control-value">{pumpDuty}</span>
