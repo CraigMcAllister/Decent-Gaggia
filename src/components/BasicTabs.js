@@ -47,6 +47,7 @@ export default function BasicTabs() {
     const [temp, setTemp] = useState(20);
     const [setPointFromEspresso, setSetPointFromEspresso] = useState(95);
     const [pressureHistory, setPressureHistory] = useState([]);
+    const [targetPressureHistory, setTargetPressureHistory] = useState([]);
     const [brewTempHistory, setBrewTempHistory] = useState([]);
     const [brewTimeHistory, setBrewTimeHistory] = useState([]);
     const [pumpDutyHistory, setPumpDutyHistory] = useState([]);
@@ -57,6 +58,7 @@ export default function BasicTabs() {
     const [isEspressoWsConnected, setIsEspressoWsConnected] = useState(false);
     const [brewSwitch, setBrewSwitch] = useState(true);
     const [isPreInfusing, setIsPreInfusing] = useState(false);
+    const [currentTargetPressure, setCurrentTargetPressure] = useState(0);
     
     const wsRef = useRef(null);
     const reconnectTimeoutRef = useRef(null);
@@ -125,6 +127,11 @@ export default function BasicTabs() {
                     setCurrentPumpOnTime(message.pumpOnTime);
                 }
                 
+                // Update target pressure if available
+                if (message.targetPressure !== undefined) {
+                    setCurrentTargetPressure(message.targetPressure);
+                }
+                
                 const newTime = getTimeString();
 
                 if (message.brewTemp !== undefined && message.pressure !== undefined) {
@@ -135,6 +142,8 @@ export default function BasicTabs() {
                      setPressureHistory(prev => [...prev, message.pressure]);
                      setPumpDutyHistory(prev => [...prev, message.pumpDuty !== undefined ? message.pumpDuty : 0]);
                      setShotGramsHistory(prev => [...prev, message.shotGrams !== undefined ? message.shotGrams : 0]);
+                     // Also add target pressure data point
+                     setTargetPressureHistory(prev => [...prev, message.targetPressure !== undefined ? message.targetPressure : 0]);
                 }
             } catch (error) {
                 console.error('Error parsing Espresso WebSocket message:', error);
@@ -176,6 +185,7 @@ export default function BasicTabs() {
         setBrewTimeHistory([]);
         setPumpDutyHistory([]);
         setShotGramsHistory([]);
+        setTargetPressureHistory([]);
     }, []);
 
     useEffect(() => {
@@ -198,6 +208,7 @@ export default function BasicTabs() {
                 if (storedState.temp !== undefined) setTemp(storedState.temp);
                 if (storedState.setPointFromEspresso !== undefined) setSetPointFromEspresso(storedState.setPointFromEspresso);
                 if (storedState.pressureHistory) setPressureHistory(storedState.pressureHistory);
+                if (storedState.targetPressureHistory) setTargetPressureHistory(storedState.targetPressureHistory);
                 if (storedState.brewTempHistory) setBrewTempHistory(storedState.brewTempHistory);
                 if (storedState.brewTimeHistory) setBrewTimeHistory(storedState.brewTimeHistory);
                 if (storedState.pumpDutyHistory) setPumpDutyHistory(storedState.pumpDutyHistory);
@@ -205,6 +216,7 @@ export default function BasicTabs() {
                 if (storedState.currentShotGrams !== undefined) setCurrentShotGrams(storedState.currentShotGrams);
                 if (storedState.currentPumpOnTime !== undefined) setCurrentPumpOnTime(storedState.currentPumpOnTime);
                 if (storedState.isPreInfusing !== undefined) setIsPreInfusing(storedState.isPreInfusing);
+                if (storedState.currentTargetPressure !== undefined) setCurrentTargetPressure(storedState.currentTargetPressure);
             }
         } catch (e) {
             console.error("Failed to load state from sessionStorage", e);
@@ -217,19 +229,21 @@ export default function BasicTabs() {
                 temp,
                 setPointFromEspresso,
                 pressureHistory,
+                targetPressureHistory,
                 brewTempHistory,
                 brewTimeHistory,
                 pumpDutyHistory,
                 shotGramsHistory,
                 currentShotGrams,
                 currentPumpOnTime,
-                isPreInfusing
+                isPreInfusing,
+                currentTargetPressure
             };
             sessionStorage.setItem('espressoAppState', JSON.stringify(stateToSave));
         } catch (e) {
             console.error("Failed to save state to sessionStorage", e);
         }
-    }, [temp, setPointFromEspresso, pressureHistory, brewTempHistory, brewTimeHistory, pumpDutyHistory, shotGramsHistory, currentShotGrams, currentPumpOnTime, isPreInfusing]);
+    }, [temp, setPointFromEspresso, pressureHistory, targetPressureHistory, brewTempHistory, brewTimeHistory, pumpDutyHistory, shotGramsHistory, currentShotGrams, currentPumpOnTime, isPreInfusing, currentTargetPressure]);
 
     const handleChange = (event, newValue) => {
         setValue(newValue);
@@ -240,6 +254,7 @@ export default function BasicTabs() {
         brewTimeHistory: brewTimeHistory.length,
         brewTempHistory: brewTempHistory.length,
         pressureHistory: pressureHistory.length,
+        targetPressureHistory: targetPressureHistory.length,
         pumpDutyHistory: pumpDutyHistory.length,
         shotGramsHistory: shotGramsHistory.length
     });
@@ -266,6 +281,16 @@ export default function BasicTabs() {
                 borderWidth: 1.5,
             },
             {
+                label: "Target Pressure",
+                data: targetPressureHistory,
+                backgroundColor: "rgba(255, 87, 34, 0)",
+                borderColor: "#FF5722",
+                borderDash: [5, 5],
+                yAxisID: 'pressure',
+                fill: false,
+                borderWidth: 1.5,
+            },
+            {
                 label: "Pump Duty",
                 data: pumpDutyHistory,
                 backgroundColor: "rgba(255, 193, 7, 0.1)",
@@ -280,7 +305,6 @@ export default function BasicTabs() {
                 data: shotGramsHistory,
                 backgroundColor: "rgba(156, 39, 176, 0.1)",
                 borderColor: "#9C27B0",
-                // Use an existing yAxisID that's already defined in chart options
                 yAxisID: 'pumpDuty',
                 fill: false,
                 borderWidth: 1.5,
@@ -326,6 +350,7 @@ export default function BasicTabs() {
                     shotGrams={currentShotGrams}
                     pumpOnTime={currentPumpOnTime}
                     isPreInfusing={isPreInfusing}
+                    targetPressure={currentTargetPressure}
                 />
             </TabPanel>
             <TabPanel value={value} index={1}>

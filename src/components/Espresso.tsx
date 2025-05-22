@@ -16,6 +16,7 @@ interface IProps {
     isPreInfusing?: boolean;
     pumpOnTime?: number;
     shotGrams?: number;
+    targetPressure?: number;
 }
 
 interface IState {
@@ -157,6 +158,12 @@ class Espresso extends React.Component<IProps, IState> {
                     shotWeightDataset.hidden = !this.state.advancedMode;
                 }
                 
+                // Always keep target pressure visible, regardless of advanced mode
+                const targetPressureDataset = chartInstance.data.datasets.find((ds: any) => ds.label === "Target Pressure");
+                if (targetPressureDataset) {
+                    targetPressureDataset.hidden = false;
+                }
+                
                 // Update chart after a short delay to ensure all changes are applied
                 setTimeout(() => {
                     if (this.myRef.current && this.myRef.current.chartInstance) {
@@ -172,7 +179,7 @@ class Espresso extends React.Component<IProps, IState> {
     }
 
     render() {
-        const { temp, setPoint, latestPressure, chartData, brewSwitch, pumpDuty, isPreInfusing, pumpOnTime, shotGrams } = this.props;
+        const { temp, setPoint, latestPressure, chartData, brewSwitch, pumpDuty, isPreInfusing, pumpOnTime, shotGrams, targetPressure } = this.props;
         const isBrewing = brewSwitch === false; // brewSwitch is false when brewing
 
         // Determine status label and color
@@ -265,6 +272,12 @@ class Espresso extends React.Component<IProps, IState> {
                                     {`${latestPressure.toFixed(2)} bar`}
                                 </span>
                             </div>
+                            {isBrewing && targetPressure !== undefined && targetPressure > 0 && (
+                                <div className="control-item">
+                                    <span className="control-label">Target Press</span>
+                                    <span className="control-value">{targetPressure.toFixed(2)} bar</span>
+                                </div>
+                            )}
                             {this.state.advancedMode && this.props.pumpOnTime !== undefined && (
                                 <div className="control-item">
                                     <span className="control-label">Pump On Time</span>

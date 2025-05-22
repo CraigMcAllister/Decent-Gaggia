@@ -595,6 +595,7 @@ void shotMonitor() {
   // Current state of brewing
   static bool prevBrewSwitch = true;  // Initialize to true (not brewing) to detect first shot
   unsigned long currentTimeInShot = 0;
+  static float currentTargetPressure = 0;  // Add variable to store current target pressure
 
   if(!brewSwitch){  // Brew switch active (brewing)
     updateFlowCounter();
@@ -622,7 +623,8 @@ void shotMonitor() {
         // and shotStarted will be false on next loop if brewSwitch is true.
     } else if (shotStarted) { // Only control pressure if shot is active and not yet finished
         if(currentTimeInShot < currentPreInfusionTime*1000){
-          setPressure(currentPreInfusionPressure);
+          currentTargetPressure = currentPreInfusionPressure;  // Store target pressure
+          setPressure(currentTargetPressure);
           // We don't reset flow counter during pre-infusion anymore to track total shot weight
           // This allows the shot weight to accumulate throughout the entire shot
         }            
@@ -631,9 +633,8 @@ void shotMonitor() {
           unsigned long timeAfterPreInfusion = currentTimeInShot - (currentPreInfusionTime * 1000);
           unsigned long rampDuration = (currentShotDuration * 1000) - (currentPreInfusionTime * 1000);
           
-          float targetPressure;
           if (rampDuration <= 0) { // Avoid division by zero if shot duration is <= pre-infusion time
-              targetPressure = currentShotPressure; // Or could be currentShotEndPressure, depends on desired behavior
+              currentTargetPressure = currentShotPressure; // Or could be currentShotEndPressure, depends on desired behavior
           } else {
               // Linearly interpolate pressure from currentShotPressure down to currentShotEndPressure
               float pressureDifference = currentShotPressure - currentShotEndPressure;
@@ -641,16 +642,16 @@ void shotMonitor() {
               
               if (rampProgress > 1.0) rampProgress = 1.0; // Cap progress at 100%
 
-              targetPressure = currentShotPressure - (pressureDifference * rampProgress);
+              currentTargetPressure = currentShotPressure - (pressureDifference * rampProgress);
               
               // Ensure target pressure doesn't go below the defined end pressure or above start pressure
-              if (targetPressure < currentShotEndPressure) targetPressure = currentShotEndPressure;
-              if (targetPressure > currentShotPressure) targetPressure = currentShotPressure; // Should not happen if logic is correct
+              if (currentTargetPressure < currentShotEndPressure) currentTargetPressure = currentShotEndPressure;
+              if (currentTargetPressure > currentShotPressure) currentTargetPressure = currentShotPressure; // Should not happen if logic is correct
           }
           
-          setPressure(targetPressure);      
+          setPressure(currentTargetPressure);      
           
-          if(pressure_bar < targetPressure - 2){ // Using targetPressure for this logic now
+          if(pressure_bar < currentTargetPressure - 2){
             if(!scalesStarted){
               // Don't reset flow counter here either
               Serial.println("Scales started");            
@@ -667,6 +668,7 @@ void shotMonitor() {
     setPumpState(false);
     shotStarted = false;
     scalesStarted = false;
+    currentTargetPressure = 0;  // Reset target pressure when not brewing
     // Don't reset flow counter here so weight is still displayed after shot
   }
   
@@ -695,6 +697,29 @@ void wsSendData()
     payload["brewSwitch"] = brewSwitch;   //brew switch status
     payload["shotGrams"] = shotGrams;     //Flow calculated weight in mg
     payload["pumpDuty"] = pumpState ? 100 : 0; // Report 100% or 0% duty
+    
+    // Add target pressure to the payload
+    float targetPressure = 0;
+    if (!brewSwitch && shotStarted) {
+      unsigned long currentTimeInShot = millis() - shotTime;
+      if (currentTimeInShot < currentPreInfusionTime*1000) {
+        targetPressure = currentPreInfusionPressure;
+      } else {
+        unsigned long timeAfterPreInfusion = currentTimeInShot - (currentPreInfusionTime * 1000);
+        unsigned long rampDuration = (currentShotDuration * 1000) - (currentPreInfusionTime * 1000);
+        if (rampDuration <= 0) {
+          targetPressure = currentShotPressure;
+        } else {
+          float pressureDifference = currentShotPressure - currentShotEndPressure;
+          float rampProgress = (float)timeAfterPreInfusion / (float)rampDuration;
+          if (rampProgress > 1.0) rampProgress = 1.0;
+          targetPressure = currentShotPressure - (pressureDifference * rampProgress);
+          if (targetPressure < currentShotEndPressure) targetPressure = currentShotEndPressure;
+          if (targetPressure > currentShotPressure) targetPressure = currentShotPressure;
+        }
+      }
+    }
+    payload["targetPressure"] = targetPressure;
     
     // Calculate total pump on time in seconds (including current on time if pump is running)
     unsigned long totalPumpTime = pumpRunTime;
